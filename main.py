@@ -43,29 +43,43 @@ def policy_result(device_type):
 def add_policy():
     data = request.get_json()
     priority = data['priority']
-    sub_policy = data['sub_policy']
-    policy_code = data['policy_code']
+    sub_policy_name = data['sub_policy_name']
+    sub_policy_code = data['sub_policy_code']
     device_type = data['device_type']
 
     # Dynamically define the method
-    # exec(policy_code)
+    # exec(sub_policy_code)
 
     # Get the method from the global scope
-    # method = globals()[sub_policy]
+    # method = globals()[sub_policy_name]
 
     # Dynamically import the specified eval method
     module = importlib.import_module(f'policies.{device_type}')
     device_type_policy = getattr(module, f'eval_{device_type}_policies')
 
-    # Add the sub_policy to the list of sub_policies for the specified priority
-    device_type_policy.sub_policies[priority].append(sub_policy)
-
-    # TODO Execute the file in the policy or add the sub_policy directly into the policy
+    # TODO Add the sub_policy_name directly into the policy
     # Save the method code to a file
     with open('methods.txt', 'a') as f:
-        f.write(policy_code + '\n')
+        f.write(sub_policy_code + '\n')
+
+    # TODO Maybe introduce an if else statement to check if it is a sub policy for a
+    #  single device type or multiple device types like electronic device applies to washing machine and washer
+    # Add the sub_policy_name to the list of sub_policies for the specified priority
+    # TODO In order for getattr to work, the sub_policy_name must be the same as the method name, without def,
+    #  and the method must already be defined in the policy file
+    sub_policy = getattr(module, sub_policy_name)
+    if sub_policy in device_type_policy.sub_policies[priority]:
+        # Double entry
+        # Send notification over API
+        pass
+    else:
+        device_type_policy.sub_policies[priority].append(sub_policy)
 
     return 'Success'
+
+
+# TODO Add a method to delete a policy
+# TODO Add a method to update a policy
 
 
 if __name__ == "__main__":

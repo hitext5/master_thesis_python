@@ -1,24 +1,19 @@
+# TODO Make eval_policy_solar_panel a generic policy that can be used by any device that is powered by solar panel
 def eval_washing_machine_policies(requesting_device, collection):
     sub_policies = {
-        'high_priority': [eval_policy_solar_panel],
-        'medium_priority': [],
-        'low_priority': [eval_policy_machine_unclean]
+        'mandatory': [eval_policy_solar_panel],
+        'double_check': [eval_policy_machine_unclean]
     }
 
     # Execute high priority sub_policies
-    for policy in sub_policies['high_priority']:
+    for policy in sub_policies['mandatory']:
         if not policy(requesting_device, collection):
-            return [False, "high_priority"]
-
-    # Execute medium priority sub_policies
-    for policy in sub_policies['medium_priority']:
-        if not policy(requesting_device, collection):
-            return [False, "medium_priority"]
+            return [False, "mandatory"]
 
     # Execute low priority sub_policies
-    for policy in sub_policies['low_priority']:
+    for policy in sub_policies['double_check']:
         if not policy(requesting_device, collection):
-            return [False, "low_priority"]
+            return [False, "double_check"]
 
     return [True, "N/A"]
 
@@ -36,5 +31,4 @@ def eval_policy_solar_panel(requesting_device, collection):
 
 
 def eval_policy_machine_unclean(requesting_device, collection):
-    print(requesting_device)
     return requesting_device["last_cleaning"] < 4
