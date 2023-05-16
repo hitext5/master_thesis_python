@@ -24,7 +24,7 @@ for device_type in device_types:
 app = Flask(__name__)
 
 
-@app.route('/policies/<string:device_type>', methods=['POST'])
+@app.route('/check_policies/<string:device_type>', methods=['POST'])
 def policy_result(device_type):
     data = request.get_json()
     policy_of_requesting_device = policies.get(device_type)
@@ -72,6 +72,25 @@ def add_policy():
 # TODO Add a method to delete a policy
 # TODO Add a method to update a policy
 
+@app.route('/get_sub_policies/<string:device_type>', methods=['POST'])
+def get_sub_policies(device_type):
+    # TODO Currently only displays the name of the sub_policy, not the code
+    module = importlib.import_module(f'policies.{device_type}')
+    specific_policies = []
+    general_policies = []
+    for _, sub_policies in policies[device_type].items():
+        for sub_policy in sub_policies:
+            if sub_policy.__module__ == module.__name__:
+                specific_policies.append(sub_policy.__name__)
+            else:
+                general_policies.append(sub_policy.__name__)
+
+    return jsonify({
+        'specific_policies': specific_policies,
+        'general_policies': general_policies
+    })
+
+
 def evaluate_policies(sub_policies, requesting_device):
     failed_sub_policies = []
 
@@ -88,7 +107,7 @@ def evaluate_policies(sub_policies, requesting_device):
     if failed_sub_policies:
         return [False, "double_check", failed_sub_policies]
 
-    return [True, "N/A"]
+    return [True, "N/A", failed_sub_policies]
 
 
 if __name__ == "__main__":
