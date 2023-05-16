@@ -19,20 +19,18 @@ policies = {}
 # Dynamically import the policies
 for device_type in device_types:
     module = importlib.import_module(f'policies.{device_type}')
-    device_type_policy = getattr(module, f'eval_{device_type}_policies')
-    policies[device_type] = device_type_policy
-
+    device_type_policies = getattr(module, 'sub_policies')
+    policies[device_type] = device_type_policies
 app = Flask(__name__)
 
 
 @app.route('/policies/<string:device_type>', methods=['POST'])
 def policy_result(device_type):
     data = request.get_json()
-    # Lookup table for policies n(1)
     policy_of_requesting_device = policies.get(device_type)
     if policy_of_requesting_device:
-        result = policy_of_requesting_device(data, collection)
-        return jsonify({"result": result[0], "priority": result[1]})
+        result = evaluate_policies(policy_of_requesting_device, data)
+        return jsonify({"result": result[0], "priority": result[1], "failed_sub_policies": result[2]})
     else:
         # There is no policy for this device type
         return jsonify({"result": True})
@@ -47,15 +45,9 @@ def add_policy():
     sub_policy_code = data['sub_policy_code']
     device_type = data['device_type']
 
-    # Dynamically define the method
-    # exec(sub_policy_code)
-
-    # Get the method from the global scope
-    # method = globals()[sub_policy_name]
-
     # Dynamically import the specified eval method
     module = importlib.import_module(f'policies.{device_type}')
-    device_type_policy = getattr(module, f'eval_{device_type}_policies')
+    sub_policies = getattr(module, 'sub_policies')
 
     # TODO Add the sub_policy_name directly into the policy
     # Save the method code to a file
@@ -65,21 +57,38 @@ def add_policy():
     # TODO Maybe introduce an if else statement to check if it is a sub policy for a
     #  single device type or multiple device types like electronic device applies to washing machine and washer
     # Add the sub_policy_name to the list of sub_policies for the specified priority
-    # TODO In order for getattr to work, the sub_policy_name must be the same as the method name, without def,
+    # In order for getattr to work, the sub_policy_name must be the same as the method name, without def,
     #  and the method must already be defined in the policy file
     sub_policy = getattr(module, sub_policy_name)
-    if sub_policy in device_type_policy.sub_policies[priority]:
-        # Double entry
-        # Send notification over API
-        pass
+    if sub_policy in sub_policies[priority]:
+        # TODO Show notification in user-interface
+        return 'Double entry', 400
     else:
-        device_type_policy.sub_policies[priority].append(sub_policy)
+        sub_policies[priority].append(sub_policy)
 
     return 'Success'
 
 
 # TODO Add a method to delete a policy
 # TODO Add a method to update a policy
+
+def evaluate_policies(sub_policies, requesting_device):
+    failed_sub_policies = []
+
+    # Execute high priority sub_policies
+    for policy in sub_policies['mandatory']:
+        if not policy(requesting_device, collection):
+            return [False, "mandatory", failed_sub_policies]
+
+    # Execute low priority sub_policies
+    for policy in sub_policies['double_check']:
+        if not policy(requesting_device, collection):
+            failed_sub_policies.append(policy.__name__)
+
+    if failed_sub_policies:
+        return [False, "double_check", failed_sub_policies]
+
+    return [True, "N/A"]
 
 
 if __name__ == "__main__":
