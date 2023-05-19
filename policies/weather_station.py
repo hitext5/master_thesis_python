@@ -18,10 +18,10 @@ sub_policies_dict = {
 
 actions_dict = {
     'eval_policy_outside_lower': [
+        # Multiple actions for one device like this {'device': 'thermostat', 'to_do': ['ac_off', 'fan_on']}
+        # Another options is {'device': 'thermostat', 'to_do': 'ac_off'}, {'device': 'thermostat', 'to_do': 'fan_on'}
+        # But method add_policy_actions() in main.py should be modified accordingly
         {'device': 'window', 'to_do': 'open_window'},
-        # TODO either  {'device': 'thermostat', 'to_do': 'ac_off'},
-        #  {'device': 'thermostat', 'to_do': 'fan_on'}
-        #  or {'device': 'thermostat', 'to_do': ['ac_off', 'fan_on']}
-        {'device': 'thermostat', 'to_do': 'ac_off'}
+        {'device': 'thermostat', 'to_do': ['turn_heating_on', 'ac_off']},
     ]
 }

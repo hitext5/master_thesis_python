@@ -121,23 +121,40 @@ def update_policies(device_type):
     return 'Success'
 
 
+@app.route('/failed_policy_actions', methods=['GET'])
+def failed_policy_actions():
+    # Get the list of failed sub-policies and the device type from the request parameters
+    failed_sub_policies = request.args.getlist('failed_sub_policies')
+    device_type = request.args.get('device_type')
+    # List of actions that the device has to do
+    policy_to_dos = []
+    # Get the actions for the requesting device
+    actions_of_requesting_device = actions_dict.get(device_type)
+    # Iterate over the failed sub-policies
+    for policy_name in failed_sub_policies:
+        add_policy_actions(policy_name, actions_of_requesting_device, policy_to_dos)
+    # Return the actions as a JSON response
+    return jsonify({'actions': policy_to_dos})
+
+
+def add_policy_actions(policy_name, possible_actions, policy_to_dos):
+    # Check if the policy has actions
+    if policy_name in possible_actions:
+        # A policy can have multiple actions
+        for action in possible_actions[policy_name]:
+            device = action['device']
+            to_do = action['to_do']
+            # Check if the action is a list of actions (the device has to do multiple things)
+            if isinstance(to_do, list):
+                policy_to_dos.extend([{'device': device, 'to_do': single_action} for single_action in to_do])
+            else:
+                policy_to_dos.append({'device': device, 'to_do': to_do})
+
+
 def evaluate_policies(sub_policies, possible_actions, requesting_device):
     # Lists to store the failed sub_policies and the actions that need to be executed
     failed_sub_policies = []
     policy_to_dos = []
-
-    def add_policy_actions(policy_name):
-        # Check if the policy has actions
-        if policy_name in possible_actions:
-            # A policy can have multiple actions
-            for action in possible_actions[policy_name]:
-                device = action['device']
-                to_do = action['to_do']
-                # Check if the action is a list of actions (the device has to do multiple things)
-                if isinstance(to_do, list):
-                    policy_to_dos.extend([{'device': device, 'to_do': single_action} for single_action in to_do])
-                else:
-                    policy_to_dos.append({'device': device, 'to_do': to_do})
 
     # Execute high priority sub_policies
     for policy in sub_policies['mandatory']:
@@ -148,7 +165,7 @@ def evaluate_policies(sub_policies, possible_actions, requesting_device):
         else:
             # If a high priority sub_policy succeeds, the actions of that sub_policy are added to the policy_to_dos
             policy_name = policy.__name__
-            add_policy_actions(policy_name)
+            add_policy_actions(policy_name, possible_actions, policy_to_dos)
 
     # Execute low priority sub_policies
     for policy in sub_policies['double_check']:
@@ -159,7 +176,7 @@ def evaluate_policies(sub_policies, possible_actions, requesting_device):
         else:
             # If a low priority sub_policy succeeds, the actions of that sub_policy are added to the policy_to_dos
             policy_name = policy.__name__
-            add_policy_actions(policy_name)
+            add_policy_actions(policy_name, possible_actions, policy_to_dos)
 
     if failed_sub_policies:
         # If there are failed low priority sub_policies, the policy fails but the double check will be handled in
