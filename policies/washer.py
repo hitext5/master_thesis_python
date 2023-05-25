@@ -2,7 +2,8 @@ from policies.electronic_devices_general import eval_policy_solar_panel
 
 sub_policies_dict = {
     'mandatory': [eval_policy_solar_panel],
-    'double_check': []
+    'double_check': [],
+    'optional': []
 }
 
 actions_dict = {}

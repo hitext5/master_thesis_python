@@ -146,9 +146,16 @@ def add_policy_actions(policy_name, possible_actions, policy_to_dos):
             to_do = action['to_do']
             # Check if the action is a list of actions (the device has to do multiple things)
             if isinstance(to_do, list):
-                policy_to_dos.extend([{'device': device, 'to_do': single_action} for single_action in to_do])
+                for single_action in to_do:
+                    new_action = {'device': device, 'to_do': single_action}
+                    # Check if the action is already in the list of actions
+                    if new_action not in policy_to_dos:
+                        policy_to_dos.append(new_action)
             else:
-                policy_to_dos.append({'device': device, 'to_do': to_do})
+                new_action = {'device': device, 'to_do': to_do}
+                # Check if the action is already in the list of actions
+                if new_action not in policy_to_dos:
+                    policy_to_dos.append(new_action)
 
 
 def evaluate_policies(sub_policies, possible_actions, requesting_device):
@@ -161,19 +168,29 @@ def evaluate_policies(sub_policies, possible_actions, requesting_device):
         result = policy(requesting_device, collection)
         if not result:
             # If a high priority sub_policy fails, the other high priority sub_policies are not executed
+            # The actions of the mandatory sub_policy that succeeded are still executed
             return [False, "mandatory", failed_sub_policies, policy_to_dos]
         else:
             # If a high priority sub_policy succeeds, the actions of that sub_policy are added to the policy_to_dos
             policy_name = policy.__name__
             add_policy_actions(policy_name, possible_actions, policy_to_dos)
 
-    # Execute low priority sub_policies
+    # Execute double check sub_policies
     for policy in sub_policies['double_check']:
         result = policy(requesting_device, collection)
         if not result:
-            # If a low priority sub_policy fails, the other low priority sub_policies are still executed
+            # If a double check sub_policy fails, the other low priority sub_policies are still executed
+            # add the failed sub_policy to the list of failed sub_policies to double-check later
             failed_sub_policies.append(policy.__name__)
         else:
+            # If a double check sub_policy succeeds, the actions of that sub_policy are added to the policy_to_dos
+            policy_name = policy.__name__
+            add_policy_actions(policy_name, possible_actions, policy_to_dos)
+
+    # Execute low priority sub_policies
+    for policy in sub_policies['optional']:
+        result = policy(requesting_device, collection)
+        if result:
             # If a low priority sub_policy succeeds, the actions of that sub_policy are added to the policy_to_dos
             policy_name = policy.__name__
             add_policy_actions(policy_name, possible_actions, policy_to_dos)

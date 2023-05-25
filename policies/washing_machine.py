@@ -7,7 +7,8 @@ def eval_policy_machine_unclean(requesting_device, collection):
 
 sub_policies_dict = {
     'mandatory': [eval_policy_solar_panel],
-    'double_check': [eval_policy_machine_unclean]
+    'double_check': [eval_policy_machine_unclean],
+    'optional': []
 }
 
 actions_dict = {}
