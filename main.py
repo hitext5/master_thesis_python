@@ -10,7 +10,8 @@ atlas_uri = "mongodb://ReadOnlyUser:test456@ac-s2miieu-shard-00-00.s0mnged.mongo
 db_name = 'Cluster0'
 mongo_client = MongoClient(atlas_uri)
 database = mongo_client[db_name]
-collection = database["devices"]
+collection_devices = database["devices"]
+collection_notifications = database["notifications"]
 
 # If there is new policy file added, add it here as well
 device_types = ['thermostat', 'washer', 'washing_machine', 'weather_station', 'window']
@@ -18,6 +19,9 @@ device_types = ['thermostat', 'washer', 'washing_machine', 'weather_station', 'w
 policies_dict = {}
 # Contains the actions for each device type will be initialized in the following for loop
 actions_dict = {}
+
+# Contains the new policies that will be added to the database
+new_policies = {}
 
 # Dynamically import the policies and actions from the policy files
 for device_type in device_types:
@@ -30,6 +34,7 @@ for device_type in device_types:
 app = Flask(__name__)
 
 
+# Call this function to evaluate the policies of a device type (default in message_handler)
 @app.route('/check_policies/<string:device_type>', methods=['POST'])
 def policy_result(device_type):
     data = request.get_json()
@@ -50,14 +55,24 @@ def policy_result(device_type):
         # return 'Invalid policy name', 400
 
 
+# Call this function to add a new policy to a policy file
 @app.route('/add_policy', methods=['POST'])
 def add_policy():
     # Data provided by the web interface
     data = request.get_json()
+    # priority is a string with the following format: 'mandatory' or 'double_check' or 'optional'
     priority = data['priority']
+    # actions is a list with the following format: [{'device': 'window', 'to_do': 'close_window'}]
     actions = data['actions']
+    # sub_policy_name is a string with the following format: 'eval_policy_owner_home'
     sub_policy_name = data['sub_policy_name']
+    # sub policy code is a string with the following format:
+    # ' return requesting_device["at_home"] and not eval_policy_gas_detected(requesting_device, collection)'
     sub_policy_code = data['sub_policy_code']
+    # imports is a list with the following format:
+    # ['from policies.carbon_monoxid_detector import eval_policy_gas_detected']
+    imports = data['imports']
+    # device_type is a string with the following format: 'smartphone'
     device_type = data['device_type']
 
     # Retrieve the sub_policies_dict and actions_dict from the module
@@ -65,10 +80,33 @@ def add_policy():
     sub_policies_dict = getattr(module, 'sub_policies_dict')
     actions_dict = getattr(module, 'actions_dict')
 
-    # TODO Add the sub_policy_name directly into the policy
-    # Save the method code to a file
-    with open('methods.txt', 'a') as f:
-        f.write(sub_policy_code + '\n')
+    # Retrieve the file content
+    filename = f'{device_type}.py'
+    with open(filename, 'r') as f:
+        lines = f.readlines()
+
+    # Find the index of the first blank line in the file
+    blank_line_index = lines.index('\n')
+
+    # Insert the new imports into the list of lines
+    for imp in reversed(imports):
+        lines.insert(blank_line_index, imp + '\n')
+
+    # Insert a blank line to separate the imports from the function definition
+    lines.insert(blank_line_index + len(imports), '\n')
+
+    # Insert the function definition into the list of lines
+    lines.insert(blank_line_index + len(imports) + 1, f'def {sub_policy_name}(requesting_device, collection):\n')
+
+    # Insert the sub_policy_code into the list of lines, indented by 4 spaces
+    lines.insert(blank_line_index + len(imports) + 2, '    ' + sub_policy_code + '\n')
+
+    # Write the modified content back to the file
+    with open(filename, 'w') as f:
+        f.writelines(lines)
+
+    # Update the new_policies dictionary when adding a new policy
+    new_policies[device_type] = f'def {sub_policy_name}(requesting_device, collection):\n    {sub_policy_code}\n'
 
     # TODO Maybe introduce an if else statement to check if it is a sub policy for a
     #  single device type or multiple device types like electronic device applies to washing machine and washer
@@ -77,23 +115,32 @@ def add_policy():
     #  and the method must already be defined in the policy file
     sub_policy = getattr(module, sub_policy_name)
     if sub_policy in sub_policies_dict[priority]:
-        # TODO Show notification in user-interface
-        return 'Double entry', 400
+        notification = {"message": f"The policy {sub_policy_name} already exists", "priority": priority}
+        print(notification["message"])
+        collection_notifications.insert_one(notification)
+        return "Double entry", 400
     else:
         # Add the sub_policy to the list of sub_policies and the action to the list of actions
         sub_policies_dict[priority].append(sub_policy)
-        # TODO Adjust the actions_dict to include the device type
         actions_dict[sub_policy_name] = actions
+        notification = {"message": f"The policy {sub_policy_name} has been added", "priority": priority}
+        print(notification["message"])
+        collection_notifications.insert_one(notification)
+    return "Policies added but not updated yet"
 
-    return 'Success'
+
+# Call this function to get the pending new policies of a device type
+@app.route('/pending_new_policies/<string:device_type>', methods=['GET'])
+def pending_new_policies(device_type):
+    return new_policies.get(device_type, "No new policies for this device type")
 
 
 # TODO Add a method to delete a policy
 # TODO Add a method to update a policy
 
-@app.route('/get_sub_policies/<string:device_type>', methods=['POST'])
+# Call this function to get the sub_policies of a device type
+@app.route('/get_sub_policies/<string:device_type>', methods=['GET'])
 def get_sub_policies(device_type):
-    # TODO Currently only displays the name of the sub_policy, not the code
     module = importlib.import_module(f'policies.{device_type}')
     specific_policies = []
     general_policies = []
@@ -110,17 +157,24 @@ def get_sub_policies(device_type):
     })
 
 
-@app.route('/update_policies/<string:device_type>', methods=['POST'])
+# Call this function to update the policies_dict and actions_dict after a policy has been added
+@app.route('/update_policies/<string:device_type>', methods=['PUT'])
 def update_policies(device_type):
     # After a policy has been added, the policies_dict and actions_dict must be updated
     module = importlib.import_module(f'policies.{device_type}')
-    device_type_policies = getattr(module, 'sub_policies')
-    device_type_actions = getattr(module, 'actions')
+    device_type_policies = getattr(module, 'sub_policies_dict')
+    device_type_actions = getattr(module, 'actions_dict')
     policies_dict[device_type] = device_type_policies
     actions_dict[device_type] = device_type_actions
-    return 'Success'
+    notification = {"message": f"The policies for {device_type} have been updated"}
+    print(notification["message"])
+    collection_notifications.insert_one(notification)
+    new_policies.pop(device_type, None)
+    return "Policies updated"
 
 
+# Call this function when a policy failed and you want to get the actions that the device has to do
+# (default in message_handler
 @app.route('/failed_policy_actions', methods=['GET'])
 def failed_policy_actions():
     # Get the list of failed sub-policies and the device type from the request parameters
@@ -165,10 +219,10 @@ def evaluate_policies(sub_policies, possible_actions, requesting_device):
 
     # Execute high priority sub_policies
     for policy in sub_policies['mandatory']:
-        result = policy(requesting_device, collection)
+        result = policy(requesting_device, collection_devices)
         if not result:
             # If a high priority sub_policy fails, the other high priority sub_policies are not executed
-            # The actions of the mandatory sub_policy that succeeded are still executed
+            policy_to_dos = []
             return [False, "mandatory", failed_sub_policies, policy_to_dos]
         else:
             # If a high priority sub_policy succeeds, the actions of that sub_policy are added to the policy_to_dos
@@ -177,7 +231,7 @@ def evaluate_policies(sub_policies, possible_actions, requesting_device):
 
     # Execute double check sub_policies
     for policy in sub_policies['double_check']:
-        result = policy(requesting_device, collection)
+        result = policy(requesting_device, collection_devices)
         if not result:
             # If a double check sub_policy fails, the other low priority sub_policies are still executed
             # add the failed sub_policy to the list of failed sub_policies to double-check later
@@ -189,7 +243,7 @@ def evaluate_policies(sub_policies, possible_actions, requesting_device):
 
     # Execute low priority sub_policies
     for policy in sub_policies['optional']:
-        result = policy(requesting_device, collection)
+        result = policy(requesting_device, collection_devices)
         if result:
             # If a low priority sub_policy succeeds, the actions of that sub_policy are added to the policy_to_dos
             policy_name = policy.__name__

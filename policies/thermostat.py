@@ -36,7 +36,7 @@ actions_dict = {'eval_policy_ac_on': [{'device': 'window', 'to_do': 'open_window
                                       {'device': 'thermostat', 'to_do': ['turn_heating_on', 'ac_off']}],
                 'eval_policy_heating_on': [{'device': 'window', 'to_do': 'close_window'}],
                 'eval_policy_air_quality': [{'device': 'window', 'to_do': 'open_window'},
-                                            {'device': 'thermostat', 'to_do': 'fan_on'}]}
+                                            {'device': 'thermostat', 'to_do': 'turn_fan_on'}]}
 # Multiple actions for one device like this {'device': 'thermostat', 'to_do': ['ac_off', 'fan_on']}
 # Another options is {'device': 'thermostat', 'to_do': 'ac_off'}, {'device': 'thermostat', 'to_do': 'fan_on'}
 # But method add_policy_actions() in main.py should be modified accordingly

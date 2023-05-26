@@ -1,5 +1,8 @@
+from policies.carbon_monoxid_detector import eval_policy_gas_detected
+
+
 def eval_policy_owner_home(requesting_device, collection):
-    return requesting_device["at_home"]
+    return requesting_device["at_home"] and not eval_policy_gas_detected(requesting_device, collection)
 
 
 sub_policies_dict = {
