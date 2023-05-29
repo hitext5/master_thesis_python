@@ -1,20 +1,32 @@
 import importlib
 
 from flask import Flask, request, jsonify
-from pymongo import MongoClient
+from pymongo import MongoClient, DESCENDING
+from datetime import datetime
 
-atlas_uri = "mongodb://ReadOnlyUser:test456@ac-s2miieu-shard-00-00.s0mnged.mongodb.net:27017," \
-            "ac-s2miieu-shard-00-01.s0mnged.mongodb.net:27017," \
-            "ac-s2miieu-shard-00-02.s0mnged.mongodb.net:27017/?ssl=true&replicaSet=atlas-vihgip-shard-0" \
-            "&authSource=admin&retryWrites=true&w=majority"
-db_name = 'Cluster0'
-mongo_client = MongoClient(atlas_uri)
-database = mongo_client[db_name]
-collection_devices = database["devices"]
-collection_notifications = database["notifications"]
+atlas_uri_admin = "mongodb://Kleriakanus:test123@ac-s2miieu-shard-00-00.s0mnged.mongodb.net:27017," \
+                  "ac-s2miieu-shard-00-01.s0mnged.mongodb.net:27017," \
+                  "ac-s2miieu-shard-00-02.s0mnged.mongodb.net:27017/?ssl=true&replicaSet=atlas-vihgip-shard-0" \
+                  "&authSource=admin&retryWrites=true&w=majority"
+atlas_uri_read = "mongodb://ReadOnlyUser:test456@ac-s2miieu-shard-00-00.s0mnged.mongodb.net:27017," \
+                 "ac-s2miieu-shard-00-01.s0mnged.mongodb.net:27017," \
+                 "ac-s2miieu-shard-00-02.s0mnged.mongodb.net:27017/?ssl=true&replicaSet=atlas-vihgip-shard-0" \
+                 "&authSource=admin&retryWrites=true&w=majority"
+rcbms_database_name = 'Cluster0'
+policy_database_name = 'Policies'
+mongo_client_admin = MongoClient(atlas_uri_admin)
+mongo_client_read = MongoClient(atlas_uri_read)
+# The policies work with the read-only access collection
+device_database = mongo_client_read[rcbms_database_name]
+# To insert the notifications in the device database and policies in the policy database we need admin access
+notification_database = mongo_client_admin[rcbms_database_name]
+policy_database = mongo_client_admin[policy_database_name]
+collection_devices = device_database["devices"]
+collection_notifications = notification_database["notifications"]
 
 # If there is new policy file added, add it here as well
-device_types = ['thermostat', 'washer', 'washing_machine', 'weather_station', 'window']
+device_types = ['carbon_monoxide_detector', 'smartphone', 'thermostat', 'washer', 'washing_machine', 'weather_station',
+                'window']
 # Contains the policies for each device type separated by priority will be initialized in the following for loop
 policies_dict = {}
 # Contains the actions for each device type will be initialized in the following for loop
@@ -55,6 +67,31 @@ def policy_result(device_type):
         # return 'Invalid policy name', 400
 
 
+# Call this function to share a policy with the community
+@app.route('/share_policy', methods=['POST'])
+def share_policy():
+    # Data provided by the web interface
+    data = request.get_json()
+    priority = data['priority']
+    sub_policy_name = data['sub_policy_name']
+    device_type = data['device_type']
+
+    # Get the collection for the specified device type
+    collection = policy_database[device_type]
+    # Insert the policy data into the collection for the specified device type if it does not exist yet
+    if collection.find_one({'sub_policy_name': sub_policy_name}):
+        current_time = datetime.now().strftime('%H:%M:%S')
+        current_date = datetime.now().strftime('%Y-%m-%d')
+        notification = {"message": f"The policy {sub_policy_name} already exists", "priority": priority,
+                        "time": current_time,
+                        "date": current_date
+                        }
+        print(notification["message"])
+        collection_notifications.insert_one(notification)
+        return 'Policy already exists', 400
+    collection.insert_one(data)
+
+
 # Call this function to add a new policy to a policy file
 @app.route('/add_policy', methods=['POST'])
 def add_policy():
@@ -77,55 +114,129 @@ def add_policy():
 
     # Retrieve the sub_policies_dict and actions_dict from the module
     module = importlib.import_module(f'policies.{device_type}')
-    sub_policies_dict = getattr(module, 'sub_policies_dict')
-    actions_dict = getattr(module, 'actions_dict')
+    # Check if the module has the sub_policies_dict and actions_dict attributes or if it is a generic policy file
+    if hasattr(module, 'sub_policies_dict'):
 
-    # Retrieve the file content
-    filename = f'{device_type}.py'
-    with open(filename, 'r') as f:
-        lines = f.readlines()
+        # Define a function to format a list of sub-policies as a string
+        def format_sub_policies(sub_policies):
+            return '[' + ', '.join(sub_policy for sub_policy in sub_policies) + ']'
 
-    # Find the index of the first blank line in the file
-    blank_line_index = lines.index('\n')
+        # Define a function to format a dictionary of sub-policies as a string
+        def format_sub_policies_dict(sub_policies_dict):
+            lines = ['sub_policies_dict = {']
+            for key, value in sub_policies_dict.items():
+                lines.append(f"    '{key}': {format_sub_policies(value)},")
+            lines.append('}')
+            return '\n'.join(lines)
 
-    # Insert the new imports into the list of lines
-    for imp in reversed(imports):
-        lines.insert(blank_line_index, imp + '\n')
+        # Define a function to format a list of actions as a string
+        def format_actions(actions):
+            lines = []
+            for action in actions:
+                lines.append(f"        {action},")
+            return '\n'.join(lines)
 
-    # Insert a blank line to separate the imports from the function definition
-    lines.insert(blank_line_index + len(imports), '\n')
+        # Define a function to format a dictionary of actions as a string
+        def format_actions_dict(actions_dict):
+            lines = ['actions_dict = {']
+            for key, value in actions_dict.items():
+                lines.append(f"    '{key}': [")
+                lines.append(format_actions(value))
+                lines.append('    ],')
+            lines.append('}')
+            return '\n'.join(lines)
 
-    # Insert the function definition into the list of lines
-    lines.insert(blank_line_index + len(imports) + 1, f'def {sub_policy_name}(requesting_device, collection):\n')
+        # Retrieve the file content
+        sub_policies_dict = getattr(module, 'sub_policies_dict')
+        actions_dict = getattr(module, 'actions_dict')
+        filename = f'policies/{device_type}.py'
+        with open(filename, 'r') as f:
+            lines = f.readlines()
 
-    # Insert the sub_policy_code into the list of lines, indented by 4 spaces
-    lines.insert(blank_line_index + len(imports) + 2, '    ' + sub_policy_code + '\n')
+        # Insert the imports into the list of lines
+        for imp in reversed(imports):
+            lines.insert(0, imp + '\n\n')
 
-    # Write the modified content back to the file
-    with open(filename, 'w') as f:
-        f.writelines(lines)
-
-    # Update the new_policies dictionary when adding a new policy
-    new_policies[device_type] = f'def {sub_policy_name}(requesting_device, collection):\n    {sub_policy_code}\n'
-
-    # TODO Maybe introduce an if else statement to check if it is a sub policy for a
-    #  single device type or multiple device types like electronic device applies to washing machine and washer
-    # Add the sub_policy_name to the list of sub_policies for the specified priority
-    # In order for getattr to work, the sub_policy_name must be the same as the method name, without def,
-    #  and the method must already be defined in the policy file
-    sub_policy = getattr(module, sub_policy_name)
-    if sub_policy in sub_policies_dict[priority]:
-        notification = {"message": f"The policy {sub_policy_name} already exists", "priority": priority}
-        print(notification["message"])
-        collection_notifications.insert_one(notification)
-        return "Double entry", 400
-    else:
-        # Add the sub_policy to the list of sub_policies and the action to the list of actions
-        sub_policies_dict[priority].append(sub_policy)
+        # Update sub_policies_dict and actions_dict in memory
+        sub_policies_dict[priority].append(sub_policy_name)
         actions_dict[sub_policy_name] = actions
-        notification = {"message": f"The policy {sub_policy_name} has been added", "priority": priority}
-        print(notification["message"])
-        collection_notifications.insert_one(notification)
+
+        # Find the index of the line that defines the sub_policies_dict
+        sub_policies_start_index = next(i for i, line in enumerate(lines) if line.startswith('sub_policies_dict'))
+
+        # Find the index of the line that ends the sub_policies_dict definition
+        sub_policies_end_index = next(
+            i for i, line in enumerate(lines[sub_policies_start_index:], sub_policies_start_index) if
+            line.startswith('}'))
+
+        # Remove the old sub_policies_dict definition from the list of lines
+        del lines[sub_policies_start_index:sub_policies_end_index + 1]
+
+        # Insert the new sub_policies_dict definition into the list of lines
+        new_sub_policies_lines = format_sub_policies_dict(sub_policies_dict).split('\n')
+        for i, line in enumerate(new_sub_policies_lines):
+            lines.insert(sub_policies_start_index + i, line + '\n')
+
+        # Find the index of the line that defines the actions_dict
+        actions_start_index = next(i for i, line in enumerate(lines) if line.startswith('actions_dict'))
+
+        # Find the index of the line that ends the actions_dict definition
+        actions_end_index = next(
+            i for i, line in enumerate(lines[actions_start_index:], actions_start_index) if line.startswith('}'))
+
+        # Remove the old actions_dict definition from the list of lines
+        del lines[actions_start_index:actions_end_index + 1]
+
+        # Insert the new actions_dict definition into the list of lines
+        new_actions_lines = format_actions_dict(actions_dict).split('\n')
+        for i, line in enumerate(new_actions_lines):
+            lines.insert(actions_start_index + i, line + '\n')
+
+        # Insert a blank line to separate the imports from the function definition
+        lines.insert(sub_policies_start_index, '\n')
+
+        # Insert the function definition into the list of lines
+        lines.insert(sub_policies_start_index + 1, f'def {sub_policy_name}(requesting_device, collection):\n')
+
+        # Insert the sub_policy_code into the list of lines, indented by 4 spaces
+        lines.insert(sub_policies_start_index + 2, '    ' + sub_policy_code + '\n\n\n')
+
+        # Write the modified content back to the file
+        with open(filename, 'w') as f:
+            f.writelines(lines)
+
+        # Update the new_policies dictionary when adding a new policy
+        new_policies[device_type] = f'def {sub_policy_name}(requesting_device, collection):\n    {sub_policy_code}\n'
+
+    else:
+        # Retrieve the file content
+        filename = f'policies/{device_type}.py'
+        with open(filename, 'r') as f:
+            lines = f.readlines()
+
+        # Insert the imports into the list of lines
+        for imp in reversed(imports):
+            lines.insert(0, imp + '\n\n')
+
+        # Set the starting index to the end of the file
+        start_index = len(lines)
+
+        # Insert a blank line to separate the imports from the function definition
+        lines.insert(start_index, '\n')
+
+        # Insert the function definition into the list of lines
+        lines.insert(start_index + 1, f'def {sub_policy_name}(requesting_device, collection):\n')
+
+        # Insert the sub_policy_code into the list of lines, indented by 4 spaces
+        lines.insert(start_index + 2, '    ' + sub_policy_code + '\n\n\n')
+
+        # Write the modified content back to the file
+        with open(filename, 'w') as f:
+            f.writelines(lines)
+
+        # Update the new_policies dictionary when adding a new policy
+        new_policies[device_type] = f'def {sub_policy_name}(requesting_device, collection):\n    {sub_policy_code}\n'
+
     return "Policies added but not updated yet"
 
 
@@ -135,8 +246,17 @@ def pending_new_policies(device_type):
     return new_policies.get(device_type, "No new policies for this device type")
 
 
+# Call this function to get the last 20 notifications
+@app.route('/get_notifications', methods=['GET'])
+def get_notifications():
+    notifications = collection_notifications.find().sort('_id', DESCENDING).limit(20)
+    # Convert the ObjectId to string
+    notifications = [{**doc, '_id': str(doc['_id'])} for doc in notifications]
+    return jsonify(notifications)
+
 # TODO Add a method to delete a policy
 # TODO Add a method to update a policy
+# TODO Load policies from the database
 
 # Call this function to get the sub_policies of a device type
 @app.route('/get_sub_policies/<string:device_type>', methods=['GET'])
@@ -157,6 +277,21 @@ def get_sub_policies(device_type):
     })
 
 
+@app.route('/sub_policy_details/<string:device_type>/<string:sub_policy_name>', methods=['GET'])
+def sub_policy_details(device_type, sub_policy_name):
+    # Construct the filename from the device_type
+    filename = f"policies/{device_type}.py"
+    with open(filename, 'r') as f:
+        lines = f.readlines()
+    # Find the index of the line that defines the sub-policy
+    start_index = next(i for i, line in enumerate(lines) if line.startswith(f'def {sub_policy_name}'))
+    # Find the index of the first line after the sub-policy definition that is not indented
+    end_index = next(i for i, line in enumerate(lines[start_index + 1:], start_index + 1) if not line.startswith(' '))
+    # Extract the lines of code that define the sub-policy
+    sub_policy_code = ''.join(lines[start_index:end_index])
+    return sub_policy_code
+
+
 # Call this function to update the policies_dict and actions_dict after a policy has been added
 @app.route('/update_policies/<string:device_type>', methods=['PUT'])
 def update_policies(device_type):
@@ -166,14 +301,21 @@ def update_policies(device_type):
     device_type_actions = getattr(module, 'actions_dict')
     policies_dict[device_type] = device_type_policies
     actions_dict[device_type] = device_type_actions
-    notification = {"message": f"The policies for {device_type} have been updated"}
+    current_time = datetime.now().strftime('%H:%M:%S')
+    current_date = datetime.now().strftime('%Y-%m-%d')
+
+    notification = {
+        "message": f"The policies for {device_type} have been updated",
+        "time": current_time,
+        "date": current_date
+    }
     print(notification["message"])
     collection_notifications.insert_one(notification)
     new_policies.pop(device_type, None)
     return "Policies updated"
 
 
-# Call this function when a policy failed and you want to get the actions that the device has to do
+# Call this function when a policy failed, and you want to get the actions that the device has to do
 # (default in message_handler
 @app.route('/failed_policy_actions', methods=['GET'])
 def failed_policy_actions():
