@@ -112,6 +112,154 @@ def add_policy():
     # device_type is a string with the following format: 'smartphone'
     device_type = data['device_type']
 
+    update_policy_file(device_type=device_type,
+                       priority=priority,
+                       actions=actions,
+                       sub_policy_name=sub_policy_name,
+                       sub_policy_code=sub_policy_code,
+                       imports=imports)
+
+    return "Policies added but not updated yet"
+
+
+@app.route('/add_policy_from_db/community/<string:device_type>/<string:sub_policy_name>', methods=['POST'])
+def add_policy_from_db(device_type, sub_policy_name):
+    collection = policy_database[device_type]
+    policy = collection.find_one({'sub_policy_name': sub_policy_name})
+    if not policy:
+        return "Sub-policy not found"
+
+    priority = policy['priority']
+    actions = policy['actions']
+    sub_policy_name = policy['sub_policy_name']
+    sub_policy_code = policy['sub_policy_code']
+    imports = policy['imports']
+
+    update_policy_file(device_type=device_type,
+                       priority=priority,
+                       actions=actions,
+                       sub_policy_name=sub_policy_name,
+                       sub_policy_code=sub_policy_code,
+                       imports=imports)
+
+    return "Policy added but not updated yet"
+
+
+# Call this function to get the pending new policies of a device type
+@app.route('/pending_new_policies/<string:device_type>', methods=['GET'])
+def pending_new_policies(device_type):
+    return new_policies.get(device_type, "No new policies for this device type")
+
+
+# Call this function to get the last 20 notifications
+@app.route('/get_notifications', methods=['GET'])
+def get_notifications():
+    notifications = collection_notifications.find().sort('_id', DESCENDING).limit(20)
+    # Convert the ObjectId to string
+    notifications = [{**doc, '_id': str(doc['_id'])} for doc in notifications]
+    return jsonify(notifications)
+
+
+# TODO Add a method to delete a policy
+# TODO Add a method to update a policy
+
+
+@app.route('/get_sub_policies/community/<string:device_type>', methods=['GET'])
+def get_sub_policies_community(device_type):
+    collection = policy_database[device_type]
+    policies = collection.find()
+    policies = [{**doc, '_id': str(doc['_id'])} for doc in policies]
+    return jsonify(policies)
+
+
+@app.route('/sub_policy_details/community/<string:device_type>/<string:sub_policy_name>', methods=['GET'])
+def sub_policy_details_community(device_type, sub_policy_name):
+    collection = policy_database[device_type]
+    sub_policy = collection.find_one({'sub_policy_name': sub_policy_name})
+    if sub_policy:
+        sub_policy_code = sub_policy.get('sub_policy_code')
+        print(sub_policy_code)
+        return sub_policy_code
+    else:
+        return 'Sub-policy not found'
+
+
+# Call this function to get the sub_policies of a device type
+@app.route('/get_sub_policies/local/<string:device_type>', methods=['GET'])
+def get_sub_policies_local(device_type):
+    module = importlib.import_module(f'policies.{device_type}')
+    specific_policies = []
+    general_policies = []
+    for _, sub_policies in policies_dict[device_type].items():
+        for sub_policy in sub_policies:
+            if sub_policy.__module__ == module.__name__:
+                specific_policies.append(sub_policy.__name__)
+            else:
+                general_policies.append(sub_policy.__name__)
+
+    return jsonify({
+        'specific_policies': specific_policies,
+        'general_policies': general_policies
+    })
+
+
+@app.route('/sub_policy_details/local/<string:device_type>/<string:sub_policy_name>', methods=['GET'])
+def sub_policy_details_local(device_type, sub_policy_name):
+    # Construct the filename from the device_type
+    filename = f"policies/{device_type}.py"
+    with open(filename, 'r') as f:
+        lines = f.readlines()
+    # Find the index of the line that defines the sub-policy
+    start_index = next(i for i, line in enumerate(lines) if line.startswith(f'def {sub_policy_name}'))
+    # Find the index of the first line after the sub-policy definition that is not indented
+    end_index = next(i for i, line in enumerate(lines[start_index + 1:], start_index + 1) if not line.startswith(' '))
+    # Extract the lines of code that define the sub-policy
+    sub_policy_code = ''.join(lines[start_index:end_index])
+    return sub_policy_code
+
+
+# Call this function to update the policies_dict and actions_dict after a policy has been added
+@app.route('/update_policies/<string:device_type>', methods=['PUT'])
+def update_policies(device_type):
+    # After a policy has been added, the policies_dict and actions_dict must be updated
+    module = importlib.import_module(f'policies.{device_type}')
+    device_type_policies = getattr(module, 'sub_policies_dict')
+    device_type_actions = getattr(module, 'actions_dict')
+    policies_dict[device_type] = device_type_policies
+    actions_dict[device_type] = device_type_actions
+    current_time = datetime.now().strftime('%H:%M:%S')
+    current_date = datetime.now().strftime('%Y-%m-%d')
+
+    notification = {
+        "message": f"The policies for {device_type} have been updated",
+        "time": current_time,
+        "date": current_date
+    }
+    print(notification["message"])
+    collection_notifications.insert_one(notification)
+    new_policies.pop(device_type, None)
+    return "Policies updated"
+
+
+# Call this function when a policy failed, and you want to get the actions that the device has to do
+# (default in message_handler
+@app.route('/failed_policy_actions', methods=['GET'])
+def failed_policy_actions():
+    # Get the list of failed sub-policies and the device type from the request parameters
+    failed_sub_policies = request.args.getlist('failed_sub_policies')
+    device_type = request.args.get('device_type')
+    # List of actions that the device has to do
+    policy_to_dos = []
+    # Get the actions for the requesting device
+    actions_of_requesting_device = actions_dict.get(device_type)
+    # Iterate over the failed sub-policies
+    for policy_name in failed_sub_policies:
+        add_policy_actions(policy_name, actions_of_requesting_device, policy_to_dos)
+    # Return the actions as a JSON response
+    return jsonify({'actions': policy_to_dos})
+
+
+def update_policy_file(device_type, priority, actions, sub_policy_name, sub_policy_code, imports):
     # Retrieve the sub_policies_dict and actions_dict from the module
     module = importlib.import_module(f'policies.{device_type}')
     # Check if the module has the sub_policies_dict and actions_dict attributes or if it is a generic policy file
@@ -236,101 +384,6 @@ def add_policy():
 
         # Update the new_policies dictionary when adding a new policy
         new_policies[device_type] = f'def {sub_policy_name}(requesting_device, collection):\n    {sub_policy_code}\n'
-
-    return "Policies added but not updated yet"
-
-
-# Call this function to get the pending new policies of a device type
-@app.route('/pending_new_policies/<string:device_type>', methods=['GET'])
-def pending_new_policies(device_type):
-    return new_policies.get(device_type, "No new policies for this device type")
-
-
-# Call this function to get the last 20 notifications
-@app.route('/get_notifications', methods=['GET'])
-def get_notifications():
-    notifications = collection_notifications.find().sort('_id', DESCENDING).limit(20)
-    # Convert the ObjectId to string
-    notifications = [{**doc, '_id': str(doc['_id'])} for doc in notifications]
-    return jsonify(notifications)
-
-# TODO Add a method to delete a policy
-# TODO Add a method to update a policy
-# TODO Load policies from the database
-
-# Call this function to get the sub_policies of a device type
-@app.route('/get_sub_policies/<string:device_type>', methods=['GET'])
-def get_sub_policies(device_type):
-    module = importlib.import_module(f'policies.{device_type}')
-    specific_policies = []
-    general_policies = []
-    for _, sub_policies in policies_dict[device_type].items():
-        for sub_policy in sub_policies:
-            if sub_policy.__module__ == module.__name__:
-                specific_policies.append(sub_policy.__name__)
-            else:
-                general_policies.append(sub_policy.__name__)
-
-    return jsonify({
-        'specific_policies': specific_policies,
-        'general_policies': general_policies
-    })
-
-
-@app.route('/sub_policy_details/<string:device_type>/<string:sub_policy_name>', methods=['GET'])
-def sub_policy_details(device_type, sub_policy_name):
-    # Construct the filename from the device_type
-    filename = f"policies/{device_type}.py"
-    with open(filename, 'r') as f:
-        lines = f.readlines()
-    # Find the index of the line that defines the sub-policy
-    start_index = next(i for i, line in enumerate(lines) if line.startswith(f'def {sub_policy_name}'))
-    # Find the index of the first line after the sub-policy definition that is not indented
-    end_index = next(i for i, line in enumerate(lines[start_index + 1:], start_index + 1) if not line.startswith(' '))
-    # Extract the lines of code that define the sub-policy
-    sub_policy_code = ''.join(lines[start_index:end_index])
-    return sub_policy_code
-
-
-# Call this function to update the policies_dict and actions_dict after a policy has been added
-@app.route('/update_policies/<string:device_type>', methods=['PUT'])
-def update_policies(device_type):
-    # After a policy has been added, the policies_dict and actions_dict must be updated
-    module = importlib.import_module(f'policies.{device_type}')
-    device_type_policies = getattr(module, 'sub_policies_dict')
-    device_type_actions = getattr(module, 'actions_dict')
-    policies_dict[device_type] = device_type_policies
-    actions_dict[device_type] = device_type_actions
-    current_time = datetime.now().strftime('%H:%M:%S')
-    current_date = datetime.now().strftime('%Y-%m-%d')
-
-    notification = {
-        "message": f"The policies for {device_type} have been updated",
-        "time": current_time,
-        "date": current_date
-    }
-    print(notification["message"])
-    collection_notifications.insert_one(notification)
-    new_policies.pop(device_type, None)
-    return "Policies updated"
-
-
-# Call this function when a policy failed, and you want to get the actions that the device has to do
-# (default in message_handler
-@app.route('/failed_policy_actions', methods=['GET'])
-def failed_policy_actions():
-    # Get the list of failed sub-policies and the device type from the request parameters
-    failed_sub_policies = request.args.getlist('failed_sub_policies')
-    device_type = request.args.get('device_type')
-    # List of actions that the device has to do
-    policy_to_dos = []
-    # Get the actions for the requesting device
-    actions_of_requesting_device = actions_dict.get(device_type)
-    # Iterate over the failed sub-policies
-    for policy_name in failed_sub_policies:
-        add_policy_actions(policy_name, actions_of_requesting_device, policy_to_dos)
-    # Return the actions as a JSON response
-    return jsonify({'actions': policy_to_dos})
 
 
 def add_policy_actions(policy_name, possible_actions, policy_to_dos):
