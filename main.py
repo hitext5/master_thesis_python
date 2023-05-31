@@ -3,6 +3,7 @@ import re
 import sys
 
 from flask import Flask, request, jsonify
+from flask_cors import CORS
 from pymongo import MongoClient, DESCENDING
 from datetime import datetime
 
@@ -46,6 +47,7 @@ for device_type in device_types:
     actions_dict[device_type] = device_type_actions
 
 app = Flask(__name__)
+CORS(app, origins="http://localhost:5050")
 
 
 # Call this function to evaluate the policies of a device type (default in message_handler)
