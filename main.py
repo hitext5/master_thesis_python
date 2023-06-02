@@ -71,6 +71,24 @@ def policy_result(device_type):
         # return 'Invalid policy name', 400
 
 
+# Call this function when a policy failed, and you want to get the actions that the device has to do
+# (default in message_handler)
+@app.route('/failed_policy_actions', methods=['GET'])
+def failed_policy_actions():
+    # Get the list of failed sub-policies and the device type from the request parameters
+    failed_sub_policies = request.args.getlist('failed_sub_policies')
+    device_type = request.args.get('device_type')
+    # List of actions that the device has to do
+    policy_to_dos = []
+    # Get the actions for the requesting device
+    actions_of_requesting_device = actions_dict.get(device_type)
+    # Iterate over the failed sub-policies
+    for policy_name in failed_sub_policies:
+        add_policy_actions(policy_name, actions_of_requesting_device, policy_to_dos)
+    # Return the actions as a JSON response
+    return jsonify({'actions': policy_to_dos})
+
+
 # Call this function to share a policy with the community
 @app.route('/share_sub_policy', methods=['POST'])
 def share_sub_policy():
@@ -130,7 +148,6 @@ def add_sub_policy():
         return "Sub-policy already exists"
 
 
-# Call this function to add a new policy to a policy file from the database
 @app.route('/add_sub_policy_from_db/community/<string:device_type>/<string:sub_policy_name>', methods=['POST'])
 def add_sub_policy_from_db(device_type, sub_policy_name):
     collection = policy_database[device_type]
@@ -172,14 +189,25 @@ def get_notifications():
     return jsonify(notifications)
 
 
+# Call this function to get all the devices
+@app.route('/get_devices', methods=['GET'])
+def get_devices():
+    devices = collection_devices.find()
+    devices = [{**doc, '_id': str(doc['_id'])} for doc in devices]
+    return jsonify(devices)
+
+
 # Call this function to delete a sub-policy from a policy file
 @app.route('/delete_sub_policy/local/<string:device_type>/<string:sub_policy_name>', methods=['DELETE'])
 def delete_sub_policy(device_type, sub_policy_name):
     module = importlib.import_module(f'policies.{device_type}')
     if not hasattr(module, 'sub_policies_dict'):
-        return jsonify({'error': 'Sub-policy not found'})
+        return "Policy file not found"
 
     sub_policies_dict = getattr(module, 'sub_policies_dict')
+    if sub_policy_name not in [sub_policy.__name__ for priority in sub_policies_dict for sub_policy in
+                               sub_policies_dict[priority]]:
+        return "Sub-policy not found"
     actions_dict = getattr(module, 'actions_dict')
     filename = f'policies/{device_type}.py'
     with open(filename, 'r') as f:
@@ -237,6 +265,8 @@ def delete_sub_policy(device_type, sub_policy_name):
     with open(filename, 'w') as f:
         f.writelines(lines)
 
+    importlib.reload(module)
+
     return "Policy deleted"
 
 
@@ -256,9 +286,12 @@ def delete_sub_policy_from_db(device_type, sub_policy_name):
 def change_sub_policy(device_type, sub_policy_name):
     module = importlib.import_module(f'policies.{device_type}')
     if not hasattr(module, 'sub_policies_dict'):
-        return jsonify({'error': 'Sub-policy not found'})
+        return "Policy file not found"
 
     sub_policies_dict = getattr(module, 'sub_policies_dict')
+    if sub_policy_name not in [sub_policy.__name__ for priority in sub_policies_dict for sub_policy in
+                               sub_policies_dict[priority]]:
+        return "Sub-policy not found"
     actions_dict = getattr(module, 'actions_dict')
 
     # Find priority and actions
@@ -351,7 +384,7 @@ def sub_policy_details_community(device_type, sub_policy_name):
         sub_policy_code = sub_policy.get('sub_policy_code')
         return sub_policy_code
     else:
-        return 'Sub-policy not found'
+        return "Sub-policy not found"
 
 
 # Call this function to get the sub_policies of a device type from the local file
@@ -380,13 +413,17 @@ def sub_policy_details_local(device_type, sub_policy_name):
     filename = f"policies/{device_type}.py"
     with open(filename, 'r') as f:
         lines = f.readlines()
-    # Find the index of the line that defines the sub-policy
-    start_index = next(i for i, line in enumerate(lines) if line.startswith(f'def {sub_policy_name}'))
-    # Find the index of the first line after the sub-policy definition that is not indented
-    end_index = next(i for i, line in enumerate(lines[start_index + 1:], start_index + 1) if not line.startswith(' '))
-    # Extract the lines of code that define the sub-policy
-    sub_policy_code = ''.join(lines[start_index:end_index])
-    return sub_policy_code
+    try:
+        # Find the index of the line that defines the sub-policy
+        start_index = next(i for i, line in enumerate(lines) if line.startswith(f'def {sub_policy_name}'))
+        # Find the index of the first line after the sub-policy definition that is not indented
+        end_index = next(i for i, line in enumerate(lines[start_index + 1:], start_index + 1) if not line.startswith(' '))
+        # Extract the lines of code that define the sub-policy
+        sub_policy_code = ''.join(lines[start_index:end_index])
+        return sub_policy_code
+    except StopIteration:
+        # Handle the case where the sub_policy_name does not exist
+        return f"Sub-policy {sub_policy_name} does not exist"
 
 
 # Call this function to update the policies_dict and actions_dict after a policy has been added
@@ -416,24 +453,6 @@ def update_policies(device_type):
     collection_notifications.insert_one(notification)
     new_policies.pop(device_type, None)
     return "Policies updated"
-
-
-# Call this function when a policy failed, and you want to get the actions that the device has to do
-# (default in message_handler)
-@app.route('/failed_policy_actions', methods=['GET'])
-def failed_policy_actions():
-    # Get the list of failed sub-policies and the device type from the request parameters
-    failed_sub_policies = request.args.getlist('failed_sub_policies')
-    device_type = request.args.get('device_type')
-    # List of actions that the device has to do
-    policy_to_dos = []
-    # Get the actions for the requesting device
-    actions_of_requesting_device = actions_dict.get(device_type)
-    # Iterate over the failed sub-policies
-    for policy_name in failed_sub_policies:
-        add_policy_actions(policy_name, actions_of_requesting_device, policy_to_dos)
-    # Return the actions as a JSON response
-    return jsonify({'actions': policy_to_dos})
 
 
 # Define a function to format a list of sub-policies as a string
