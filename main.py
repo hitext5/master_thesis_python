@@ -47,7 +47,7 @@ for device_type in device_types:
     actions_dict[device_type] = device_type_actions
 
 app = Flask(__name__)
-CORS(app, origins="http://localhost:5050")
+CORS(app, origins="http://localhost:5000")
 
 
 # Call this function to evaluate the policies of a device type (default in message_handler)
@@ -183,8 +183,14 @@ def pending_new_sub_policies(device_type):
 # Call this function to get the last 20 notifications
 @app.route('/get_notifications', methods=['GET'])
 def get_notifications():
-    notifications = collection_notifications.find().sort('_id', DESCENDING).limit(20)
-    # Convert the ObjectId to string
+    # Get the page number from the request parameters
+    page = int(request.args.get('page', 1))
+    # Number of notifications per page
+    per_page = 20
+    # Based on the page number, calculate the number of database entries to skip
+    skip = (page - 1) * per_page
+    # Get the last 20 notifications from the database and convert the ObjectId to a string
+    notifications = collection_notifications.find().sort('_id', DESCENDING).skip(skip).limit(per_page)
     notifications = [{**doc, '_id': str(doc['_id'])} for doc in notifications]
     return jsonify(notifications)
 
