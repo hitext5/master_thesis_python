@@ -61,11 +61,9 @@ def policy_result(device_type):
     if policy_of_requesting_device:
         result = evaluate_policies(policy_of_requesting_device, actions_of_requesting_device, data)
         # Send the result to the message_handler
-        print(result)
-        return jsonify({"result": result[0], "priority": result[1], "failed_sub_policies": result[2],
+        return jsonify({"result": result[0], "priority": result[1], "failed_double_check": result[2],
                         "actions": result[3]})
     else:
-        print(f'No policy for {device_type}')
         # There is no policy for this device type
         return jsonify({"result": True})
         # return 'Invalid policy name', 400
@@ -76,14 +74,14 @@ def policy_result(device_type):
 @app.route('/failed_policy_actions', methods=['GET'])
 def failed_policy_actions():
     # Get the list of failed sub-policies and the device type from the request parameters
-    failed_sub_policies = request.args.getlist('failed_sub_policies')
+    failed_double_check = request.args.getlist('failed_double_check')
     device_type = request.args.get('device_type')
     # List of actions that the device has to do
     policy_to_dos = []
     # Get the actions for the requesting device
     actions_of_requesting_device = actions_dict.get(device_type)
     # Iterate over the failed sub-policies
-    for policy_name in failed_sub_policies:
+    for policy_name in failed_double_check:
         add_policy_actions(policy_name, actions_of_requesting_device, policy_to_dos)
     # Return the actions as a JSON response
     return jsonify({'actions': policy_to_dos})
@@ -104,11 +102,10 @@ def share_sub_policy():
     if collection.find_one({'sub_policy_name': sub_policy_name}):
         current_time = datetime.now().strftime('%H:%M:%S')
         current_date = datetime.now().strftime('%Y-%m-%d')
-        notification = {"message": f"The policy {sub_policy_name} already exists", "priority": priority,
+        notification = {"message": f"The policy {sub_policy_name} already exists",
                         "time": current_time,
                         "date": current_date
                         }
-        print(notification["message"])
         collection_notifications.insert_one(notification)
         return 'Policy already exists', 400
     collection.insert_one(data)
@@ -202,6 +199,15 @@ def get_devices():
     devices = [{**doc, '_id': str(doc['_id'])} for doc in devices]
     return jsonify(devices)
 
+@app.route('/get_possible_actions/<string:device_type>', methods=['GET'])
+def get_possible_actions(device_type):
+    devices = collection_devices.find({'device_type': device_type}, {'possible_actions': 1})
+    possible_actions = []
+    for device in devices:
+        if 'possible_actions' in device:
+            possible_actions.extend(device['possible_actions'])
+    return jsonify(list(set(possible_actions)))
+
 
 # Call this function to delete a sub-policy from a policy file
 @app.route('/delete_sub_policy/local/<string:device_type>/<string:sub_policy_name>', methods=['DELETE'])
@@ -221,7 +227,6 @@ def delete_sub_policy(device_type, sub_policy_name):
 
     # Remove sub-policy from sub_policies_dict
     for priority in sub_policies_dict:
-        print(sub_policies_dict[priority])
         if sub_policy_name in [sub_policy.__name__ for sub_policy in sub_policies_dict[priority]]:
             sub_policies_dict[priority] = [sub_policy for sub_policy in sub_policies_dict[priority] if
                                            sub_policy.__name__ != sub_policy_name]
@@ -455,7 +460,6 @@ def update_policies(device_type):
         "time": current_time,
         "date": current_date
     }
-    print(notification["message"])
     collection_notifications.insert_one(notification)
     new_policies.pop(device_type, None)
     return "Policies updated"
@@ -630,8 +634,9 @@ def add_policy_actions(policy_name, possible_actions, policy_to_dos):
 # Used in the function policy_result
 def evaluate_policies(sub_policies, possible_actions, requesting_device):
     # Lists to store the failed sub_policies and the actions that need to be executed
-    failed_sub_policies = []
+    failed_double_check = []
     policy_to_dos = []
+    optional_failed = False
 
     # Execute high priority sub_policies
     for policy in sub_policies['mandatory']:
@@ -639,7 +644,7 @@ def evaluate_policies(sub_policies, possible_actions, requesting_device):
         if not result:
             # If a high priority sub_policy fails, the other high priority sub_policies are not executed
             policy_to_dos = []
-            return [False, "mandatory", failed_sub_policies, policy_to_dos]
+            return [False, "mandatory", failed_double_check, policy_to_dos]
         else:
             # If a high priority sub_policy succeeds, the actions of that sub_policy are added to the policy_to_dos
             policy_name = policy.__name__
@@ -651,7 +656,7 @@ def evaluate_policies(sub_policies, possible_actions, requesting_device):
         if not result:
             # If a double check sub_policy fails, the other low priority sub_policies are still executed
             # add the failed sub_policy to the list of failed sub_policies to double-check later
-            failed_sub_policies.append(policy.__name__)
+            failed_double_check.append(policy.__name__)
         else:
             # If a double check sub_policy succeeds, the actions of that sub_policy are added to the policy_to_dos
             policy_name = policy.__name__
@@ -660,18 +665,24 @@ def evaluate_policies(sub_policies, possible_actions, requesting_device):
     # Execute low priority sub_policies
     for policy in sub_policies['optional']:
         result = policy(requesting_device, collection_devices)
-        if result:
+        if not result:
+            optional_failed = True
+        else:
             # If a low priority sub_policy succeeds, the actions of that sub_policy are added to the policy_to_dos
             policy_name = policy.__name__
             add_policy_actions(policy_name, possible_actions, policy_to_dos)
 
-    if failed_sub_policies:
+    if failed_double_check:
         # If there are failed low priority sub_policies, the policy fails but the double check will be handled in
         #  the message_handler
-        return [False, "double_check", failed_sub_policies, policy_to_dos]
+        return [False, "double_check", failed_double_check, policy_to_dos]
 
-    # If all sub_policies succeed, the policy succeeds
-    return [True, "N/A", failed_sub_policies, policy_to_dos]
+    elif optional_failed:
+        # If there are failed low priority sub_policies, but they are not double-check sub_policies
+        return [False, "optional", failed_double_check, policy_to_dos]
+    else:
+        # If all sub_policies succeed, the policy succeeds
+        return [True, "N/A", failed_double_check, policy_to_dos]
 
 
 if __name__ == "__main__":
