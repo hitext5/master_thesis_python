@@ -549,10 +549,13 @@ def update_policy_file(device_type, priority, actions, sub_policy_name, sub_poli
         # Find the index of the line that defines the actions_dict
         actions_start_index = next(i for i, line in enumerate(lines) if line.startswith('actions_dict'))
 
-        # Find the index of the line that ends the actions_dict definition
-        actions_end_index = next(
-            i for i, line in enumerate(lines[actions_start_index:], actions_start_index) if line.startswith('}'))
-
+        try:
+            # Find the index of the line that ends the actions_dict definition
+            actions_end_index = next(
+                i for i, line in enumerate(lines[actions_start_index:], actions_start_index) if line.startswith('}'))
+        except StopIteration:
+            # Handle the error if there is no line break between the {} in the actions_dict
+            actions_end_index = actions_start_index
         # Remove the old actions_dict definition from the list of lines
         del lines[actions_start_index:actions_end_index + 1]
 
