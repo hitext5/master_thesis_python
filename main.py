@@ -88,13 +88,12 @@ def failed_policy_actions():
 
 
 # Call this function to share a policy with the community
-@app.route('/share_sub_policy', methods=['POST'])
-def share_sub_policy():
-    # Data provided by the web interface
-    data = request.get_json()
-    priority = data['priority']
-    sub_policy_name = data['sub_policy_name']
-    device_type = data['device_type']
+@app.route('/share_sub_policy/<string:device_type>/<string:sub_policy_name>', methods=['POST'])
+def share_sub_policy(device_type, sub_policy_name):
+    sub_policy_data = get_sub_policy_data(device_type, sub_policy_name)
+    # Check if the sub-policy data is None
+    if sub_policy_data is None:
+        return 'Sub-policy not found', 404
 
     # Get the collection for the specified device type
     collection = policy_database[device_type]
@@ -108,7 +107,7 @@ def share_sub_policy():
                         }
         collection_notifications.insert_one(notification)
         return 'Policy already exists', 400
-    collection.insert_one(data)
+    collection.insert_one(sub_policy_data)
 
 
 # Call this function to add a new policy to a policy file (policies_dict and actions_dict have to be updated
@@ -198,6 +197,7 @@ def get_devices():
     devices = collection_devices.find()
     devices = [{**doc, '_id': str(doc['_id'])} for doc in devices]
     return jsonify(devices)
+
 
 @app.route('/get_possible_actions/<string:device_type>', methods=['GET'])
 def get_possible_actions(device_type):
@@ -295,60 +295,10 @@ def delete_sub_policy_from_db(device_type, sub_policy_name):
 # Call this function to return a specific sub-policy entirely
 @app.route('/change_sub_policy/local/<string:device_type>/<string:sub_policy_name>', methods=['GET'])
 def change_sub_policy(device_type, sub_policy_name):
-    module = importlib.import_module(f'policies.{device_type}')
-    if not hasattr(module, 'sub_policies_dict'):
-        return "Policy file not found"
-
-    sub_policies_dict = getattr(module, 'sub_policies_dict')
-    if sub_policy_name not in [sub_policy.__name__ for priority in sub_policies_dict for sub_policy in
-                               sub_policies_dict[priority]]:
-        return "Sub-policy not found"
-    actions_dict = getattr(module, 'actions_dict')
-
-    # Find priority and actions
-    priority = None
-    actions = None
-    for p in sub_policies_dict:
-        if sub_policy_name in [sub_policy.__name__ for sub_policy in sub_policies_dict[p]]:
-            priority = p
-            break
-    if sub_policy_name in actions_dict:
-        actions = actions_dict[sub_policy_name]
-
-    # Find sub-policy code and imports
-    filename = f'policies/{device_type}.py'
-    with open(filename, 'r') as f:
-        lines = f.readlines()
-
-    function_start_pattern = re.compile(f'^def {sub_policy_name}\(')
-    function_start_index = next((i for i, line in enumerate(lines) if function_start_pattern.match(line)), None)
-    if function_start_index is None:
-        return jsonify({'error': 'Sub-policy not found'})
-
-    function_end_index = next(
-        i for i, line in enumerate(lines[function_start_index + 1:], function_start_index + 1) if
-        not line.startswith(' '))
-    function_code_lines = lines[function_start_index + 1:function_end_index]
-    sub_policy_code = ''.join(line.strip() for line in function_code_lines)
-
-    imports = []
-    imported_function_match = re.search(r'from .+ import (\w+)', ''.join(lines))
-    if imported_function_match:
-        imported_function_name = imported_function_match.group(1)
-        import_pattern = re.compile(f'^from .* import .*{imported_function_name}.*$')
-        for line in lines:
-            if import_pattern.match(line):
-                imports.append(line.strip())
-
-    return jsonify({
-        'priority': priority,
-        'actions': actions,
-        'sub_policy_name': sub_policy_name,
-        'sub_policy_code': sub_policy_code,
-        'imports': imports,
-        'device_type': device_type
-    })
-
+    sub_policy_data = get_sub_policy_data(device_type, sub_policy_name)
+    if sub_policy_data is None:
+        return 'Sub-policy not found', 404
+    return jsonify(sub_policy_data)
 
 # Call this function to return a specific sub-policy entry from the database entirely
 @app.route('/change_sub_policy/community/<string:device_type>/<string:sub_policy_name>', methods=['GET'])
@@ -428,7 +378,8 @@ def sub_policy_details_local(device_type, sub_policy_name):
         # Find the index of the line that defines the sub-policy
         start_index = next(i for i, line in enumerate(lines) if line.startswith(f'def {sub_policy_name}'))
         # Find the index of the first line after the sub-policy definition that is not indented
-        end_index = next(i for i, line in enumerate(lines[start_index + 1:], start_index + 1) if not line.startswith(' '))
+        end_index = next(
+            i for i, line in enumerate(lines[start_index + 1:], start_index + 1) if not line.startswith(' '))
         # Extract the lines of code that define the sub-policy
         sub_policy_code = ''.join(lines[start_index:end_index])
         return sub_policy_code
@@ -463,6 +414,63 @@ def update_policies(device_type):
     collection_notifications.insert_one(notification)
     new_policies.pop(device_type, None)
     return "Policies updated"
+
+
+# Used in the functions share_sub_policy and change_sub_policy
+def get_sub_policy_data(device_type, sub_policy_name):
+    module = importlib.import_module(f'policies.{device_type}')
+    if not hasattr(module, 'sub_policies_dict'):
+        return "Policy file not found"
+
+    sub_policies_dict = getattr(module, 'sub_policies_dict')
+    if sub_policy_name not in [sub_policy.__name__ for priority in sub_policies_dict for sub_policy in
+                               sub_policies_dict[priority]]:
+        return "Sub-policy not found"
+    actions_dict = getattr(module, 'actions_dict')
+
+    # Find priority and actions
+    priority = None
+    actions = None
+    for p in sub_policies_dict:
+        if sub_policy_name in [sub_policy.__name__ for sub_policy in sub_policies_dict[p]]:
+            priority = p
+            break
+    if sub_policy_name in actions_dict:
+        actions = actions_dict[sub_policy_name]
+
+    # Find sub-policy code and imports
+    filename = f'policies/{device_type}.py'
+    with open(filename, 'r') as f:
+        lines = f.readlines()
+
+    function_start_pattern = re.compile(f'^def {sub_policy_name}\(')
+    function_start_index = next((i for i, line in enumerate(lines) if function_start_pattern.match(line)), None)
+    if function_start_index is None:
+        return jsonify({'error': 'Sub-policy not found'})
+
+    function_end_index = next(
+        i for i, line in enumerate(lines[function_start_index + 1:], function_start_index + 1) if
+        not line.startswith(' '))
+    function_code_lines = lines[function_start_index + 1:function_end_index]
+    sub_policy_code = ''.join(line.strip() for line in function_code_lines)
+
+    imports = []
+    imported_function_match = re.search(r'from .+ import (\w+)', ''.join(lines))
+    if imported_function_match:
+        imported_function_name = imported_function_match.group(1)
+        import_pattern = re.compile(f'^from .* import .*{imported_function_name}.*$')
+        for line in lines:
+            if import_pattern.match(line):
+                imports.append(line.strip())
+
+    return {
+        'priority': priority,
+        'actions': actions,
+        'sub_policy_name': sub_policy_name,
+        'sub_policy_code': sub_policy_code,
+        'imports': imports,
+        'device_type': device_type
+    }
 
 
 # Define a function to format a list of sub-policies as a string

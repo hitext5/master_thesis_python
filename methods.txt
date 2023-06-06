@@ -1,0 +1,7 @@
+{'carbon_monoxide_detector': {'mandatory': [<function eval_policy_gas_detected at 0x0000020FD1383400>], 'double_check': [], 'optional': []},
+ 'smartphone': {'mandatory': [<function eval_policy_owner_home at 0x0000020FD1383640>], 'double_check': [], 'optional': []},
+ 'thermostat': {'mandatory': [], 'double_check': [<function eval_policy_ac_on at 0x0000020FD13835B0>, <function eval_policy_heating_on at 0x0000020FD1383760>, <function eval_policy_air_quality at 0x0000020FD13837F0>], 'optional': []},
+ 'washer':{'mandatory': [<function eval_policy_solar_panel at 0x0000020FD13836D0>], 'double_check': [], 'optional': []},
+ 'washing_machine': {'mandatory': [<function eval_policy_solar_panel at 0x0000020FD13836D0>], 'double_check': [<function eval_policy_machine_unclean at 0x0000020FD13839A0>], 'optional': []},
+ 'weather_station': {'mandatory': [], 'double_check': [<function eval_policy_rain_detected at 0x0000020FD1383B50>, <function eval_policy_wind_detected at 0x0000020FD1383BE0>], 'optional': []},
+ 'window': {'mandatory': [], 'double_check': [], 'optional': []}}
