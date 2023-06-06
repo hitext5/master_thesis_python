@@ -107,7 +107,8 @@ def share_sub_policy(device_type, sub_policy_name):
                         }
         collection_notifications.insert_one(notification)
         return 'Policy already exists', 400
-    collection.insert_one(sub_policy_data)
+    # Return a response indicating that the sub-policy was successfully inserted
+    return 'Sub-policy inserted successfully', 201
 
 
 # Call this function to add a new policy to a policy file (policies_dict and actions_dict have to be updated
