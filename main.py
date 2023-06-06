@@ -108,6 +108,7 @@ def share_sub_policy(device_type, sub_policy_name):
         collection_notifications.insert_one(notification)
         return 'Policy already exists', 400
     # Return a response indicating that the sub-policy was successfully inserted
+    collection.insert_one(sub_policy_data)
     return 'Sub-policy inserted successfully', 201
 
 
