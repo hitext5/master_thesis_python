@@ -529,8 +529,16 @@ def update_policy_file(device_type, priority, actions, sub_policy_name, sub_poli
 
         # Check if the sub_policy_name already exists in the sub_policies_dict
         for key in sub_policies_dict:
-            if sub_policy_name in [sub_policy.__name__ for sub_policy in sub_policies_dict[key]]:
-                return False
+            for sub_policy in sub_policies_dict[key]:
+                # Check if sub_policy is a string or a function
+                if isinstance(sub_policy, str):
+                    # If it's a string, compare it directly to sub_policy_name
+                    if sub_policy_name == sub_policy:
+                        return False
+                else:
+                    # If it's not a string (assumed to be a function), compare its __name__ attribute to sub_policy_name
+                    if sub_policy_name == sub_policy.__name__:
+                        return False
 
         # Insert the imports into the list of lines
         for imp in reversed(imports):
