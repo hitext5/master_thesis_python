@@ -133,13 +133,19 @@ def add_sub_policy():
     # device_type is a string with the following format: 'smartphone'
     device_type = data['device_type']
 
+    # Check if sub_policy_name is an empty string
+    if not sub_policy_name:
+        # Extract the last part of the imports list
+        last_import = imports[-1]
+        # Split the string by space and take the last element
+        sub_policy_name = last_import.split()[-1]
+
     result = update_policy_file(device_type=device_type,
                                 priority=priority,
                                 actions=actions,
                                 sub_policy_name=sub_policy_name,
                                 sub_policy_code=sub_policy_code,
                                 imports=imports)
-
     if result:
         return "Policy added but not updated yet"
     else:
@@ -585,11 +591,13 @@ def update_policy_file(device_type, priority, actions, sub_policy_name, sub_poli
         # Insert a blank line to separate the imports from the function definition
         lines.insert(sub_policies_start_index, '\n')
 
-        # Insert the function definition into the list of lines
-        lines.insert(sub_policies_start_index + 1, f'def {sub_policy_name}(requesting_device, collection):\n')
+        # Check if sub_policy_code is not empty
+        if sub_policy_code:
+            # Insert the function definition into the list of lines
+            lines.insert(sub_policies_start_index + 1, f'def {sub_policy_name}(requesting_device, collection):\n')
 
-        # Insert the sub_policy_code into the list of lines, indented by 4 spaces
-        lines.insert(sub_policies_start_index + 2, '    ' + sub_policy_code + '\n\n\n')
+            # Insert the sub_policy_code into the list of lines, indented by 4 spaces
+            lines.insert(sub_policies_start_index + 2, '    ' + sub_policy_code + '\n\n\n')
 
         # Write the modified content back to the file
         with open(filename, 'w') as f:
@@ -628,6 +636,8 @@ def update_policy_file(device_type, priority, actions, sub_policy_name, sub_poli
 
         # Update the new_policies dictionary when adding a new policy
         new_policies[device_type] = f'def {sub_policy_name}(requesting_device, collection):\n    {sub_policy_code}\n'
+
+        return True
 
 
 # Used in the function failed_policy_actions and evaluate_policies
