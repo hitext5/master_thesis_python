@@ -460,7 +460,7 @@ def get_sub_policy_data(device_type, sub_policy_name):
         i for i, line in enumerate(lines[function_start_index + 1:], function_start_index + 1) if
         not line.startswith(' '))
     function_code_lines = lines[function_start_index + 1:function_end_index]
-    sub_policy_code = ''.join(line.strip() for line in function_code_lines)
+    sub_policy_code = ''.join(line for line in function_code_lines)
 
     imports = []
     imported_function_match = re.search(r'from .+ import (\w+)', ''.join(lines))
@@ -710,7 +710,7 @@ def evaluate_policies(sub_policies, possible_actions, requesting_device):
 
     elif optional_failed:
         # If there are failed low priority sub_policies, but they are not double-check sub_policies
-        return [False, "optional", failed_double_check, policy_to_dos]
+        return [True, "optional", failed_double_check, policy_to_dos]
     else:
         # If all sub_policies succeed, the policy succeeds
         return [True, "N/A", failed_double_check, policy_to_dos]
