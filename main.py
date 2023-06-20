@@ -306,7 +306,9 @@ def change_sub_policy(device_type, sub_policy_name):
     sub_policy_data = get_sub_policy_data(device_type, sub_policy_name)
     if sub_policy_data is None:
         return 'Sub-policy not found', 404
+    sub_policy_data['sub_policy_code'] = sub_policy_data['sub_policy_code'].replace('\n', '<br>')
     return jsonify(sub_policy_data)
+
 
 # Call this function to return a specific sub-policy entry from the database entirely
 @app.route('/change_sub_policy/community/<string:device_type>/<string:sub_policy_name>', methods=['GET'])
@@ -428,12 +430,12 @@ def update_policies(device_type):
 def get_sub_policy_data(device_type, sub_policy_name):
     module = importlib.import_module(f'policies.{device_type}')
     if not hasattr(module, 'sub_policies_dict'):
-        return "Policy file not found"
+        return None
 
     sub_policies_dict = getattr(module, 'sub_policies_dict')
     if sub_policy_name not in [sub_policy.__name__ for priority in sub_policies_dict for sub_policy in
                                sub_policies_dict[priority]]:
-        return "Sub-policy not found"
+        return None
     actions_dict = getattr(module, 'actions_dict')
 
     # Find priority and actions
