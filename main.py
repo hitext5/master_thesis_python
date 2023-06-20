@@ -306,7 +306,6 @@ def change_sub_policy(device_type, sub_policy_name):
     sub_policy_data = get_sub_policy_data(device_type, sub_policy_name)
     if sub_policy_data is None:
         return 'Sub-policy not found', 404
-    sub_policy_data['sub_policy_code'] = sub_policy_data['sub_policy_code'].replace('\n', '<br>')
     return jsonify(sub_policy_data)
 
 
