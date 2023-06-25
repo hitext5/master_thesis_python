@@ -1,6 +1,8 @@
+import copy
 import importlib
 import re
 import sys
+import tracemalloc
 
 from flask import Flask, request, jsonify
 from flask_cors import CORS
@@ -38,6 +40,8 @@ actions_dict = {}
 # Contains the new policies that will be added to the database
 new_policies = {}
 
+tracemalloc.start()
+
 # Dynamically import the policies and actions from the policy files
 for device_type in device_types:
     module = importlib.import_module(f'policies.{device_type}')
@@ -45,6 +49,11 @@ for device_type in device_types:
     device_type_actions = getattr(module, 'actions_dict')
     policies_dict[device_type] = device_type_policies
     actions_dict[device_type] = device_type_actions
+
+current_size, peak_size = tracemalloc.get_traced_memory()
+
+print(f"Current size: {current_size / 1024 / 1024} MB")
+print(f"Peak size: {peak_size / 1024 / 1024} MB")
 
 app = Flask(__name__)
 CORS(app, origins="http://localhost:5000")
@@ -60,6 +69,11 @@ def policy_result(device_type):
     # Check if there is a policy for this device type
     if policy_of_requesting_device:
         result = evaluate_policies(policy_of_requesting_device, actions_of_requesting_device, data)
+        current_size, peak_size = tracemalloc.get_traced_memory()
+
+        print(f"Current size: {current_size / 1024 / 1024} MB")
+        print(f"Peak size: {peak_size / 1024 / 1024} MB")
+
         # Send the result to the message_handler
         return jsonify({"result": result[0], "priority": result[1], "failed_double_check": result[2],
                         "actions": result[3]})
@@ -551,9 +565,13 @@ def update_policy_file(device_type, priority, actions, sub_policy_name, sub_poli
         for imp in reversed(imports):
             lines.insert(0, imp + '\n\n')
 
-        # Update sub_policies_dict and actions_dict in memory
-        sub_policies_dict[priority].append(sub_policy_name)
-        actions_dict[sub_policy_name] = actions
+        # Create a copy of the dictionaries
+        sub_policies_dict_copy = copy.deepcopy(sub_policies_dict)
+        actions_dict_copy = copy.deepcopy(actions_dict)
+
+        # Update the copies of the dictionaries in memory
+        sub_policies_dict_copy[priority].append(sub_policy_name)
+        actions_dict_copy[sub_policy_name] = actions
 
         # Find the index of the line that defines the sub_policies_dict
         sub_policies_start_index = next(i for i, line in enumerate(lines) if line.startswith('sub_policies_dict'))
@@ -567,7 +585,7 @@ def update_policy_file(device_type, priority, actions, sub_policy_name, sub_poli
         del lines[sub_policies_start_index:sub_policies_end_index + 1]
 
         # Insert the new sub_policies_dict definition into the list of lines
-        new_sub_policies_lines = format_sub_policies_dict(sub_policies_dict).split('\n')
+        new_sub_policies_lines = format_sub_policies_dict(sub_policies_dict_copy).split('\n')
         for i, line in enumerate(new_sub_policies_lines):
             lines.insert(sub_policies_start_index + i, line + '\n')
 
@@ -585,7 +603,7 @@ def update_policy_file(device_type, priority, actions, sub_policy_name, sub_poli
         del lines[actions_start_index:actions_end_index + 1]
 
         # Insert the new actions_dict definition into the list of lines
-        new_actions_lines = format_actions_dict(actions_dict).split('\n')
+        new_actions_lines = format_actions_dict(actions_dict_copy).split('\n')
         for i, line in enumerate(new_actions_lines):
             lines.insert(actions_start_index + i, line + '\n')
 
