@@ -22,7 +22,7 @@ def eval_policy_air_quality(requesting_device, collection):
     return requesting_device["air_quality"] > 100 and smartphone["at_home"]
 
 
-sub_policies_dict = {
+policies_dict = {
     'mandatory': [],
     'double_check': [eval_policy_ac_on, eval_policy_heating_on, eval_policy_air_quality],
     'optional': []

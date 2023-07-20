@@ -6,7 +6,7 @@ def eval_policy_wind_detected(requesting_device, collection):
     return requesting_device["wind_speed"] > 10
 
 
-sub_policies_dict = {
+policies_dict = {
     'mandatory': [],
     'double_check': [eval_policy_rain_detected, eval_policy_wind_detected],
     'optional': []

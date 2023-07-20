@@ -1,4 +1,4 @@
-sub_policies_dict = {
+policies_dict = {
     'mandatory': [],
     'double_check': [],
     'optional': []

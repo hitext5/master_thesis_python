@@ -45,7 +45,7 @@ tracemalloc.start()
 # Dynamically import the policies and actions from the policy files
 for device_type in device_types:
     module = importlib.import_module(f'policies.{device_type}')
-    device_type_policies = getattr(module, 'sub_policies_dict')
+    device_type_policies = getattr(module, 'policies_dict')
     device_type_actions = getattr(module, 'actions_dict')
     policies_dict[device_type] = device_type_policies
     actions_dict[device_type] = device_type_actions
@@ -87,14 +87,14 @@ def policy_result(device_type):
 # (default in message_handler)
 @app.route('/failed_policy_actions', methods=['GET'])
 def failed_policy_actions():
-    # Get the list of failed sub-policies and the device type from the request parameters
+    # Get the list of failed policies and the device type from the request parameters
     failed_double_check = request.args.getlist('failed_double_check')
     device_type = request.args.get('device_type')
     # List of actions that the device has to do
     policy_to_dos = []
     # Get the actions for the requesting device
     actions_of_requesting_device = actions_dict.get(device_type)
-    # Iterate over the failed sub-policies
+    # Iterate over the failed policies
     for policy_name in failed_double_check:
         add_policy_actions(policy_name, actions_of_requesting_device, policy_to_dos)
     # Return the actions as a JSON response
@@ -102,99 +102,99 @@ def failed_policy_actions():
 
 
 # Call this function to share a policy with the community
-@app.route('/share_sub_policy/<string:device_type>/<string:sub_policy_name>', methods=['POST'])
-def share_sub_policy(device_type, sub_policy_name):
-    sub_policy_data = get_sub_policy_data(device_type, sub_policy_name)
-    # Check if the sub-policy data is None
-    if sub_policy_data is None:
-        return 'Sub-policy not found', 404
+@app.route('/share_policy/<string:device_type>/<string:policy_name>', methods=['POST'])
+def share_policy(device_type, policy_name):
+    policy_data = get_policy_data(device_type, policy_name)
+    # Check if the policy data is None
+    if policy_data is None:
+        return 'policy not found', 404
 
     # Get the collection for the specified device type
     collection = policy_database[device_type]
     # Insert the policy data into the collection for the specified device type if it does not exist yet
-    if collection.find_one({'sub_policy_name': sub_policy_name}):
+    if collection.find_one({'policy_name': policy_name}):
         current_time = datetime.now().strftime('%H:%M:%S')
         current_date = datetime.now().strftime('%Y-%m-%d')
-        notification = {"message": f"The policy {sub_policy_name} already exists",
+        notification = {"message": f"The policy {policy_name} already exists",
                         "time": current_time,
                         "date": current_date
                         }
         collection_notifications.insert_one(notification)
         return 'Policy already exists', 400
-    # Return a response indicating that the sub-policy was successfully inserted
-    collection.insert_one(sub_policy_data)
-    return 'Sub-policy inserted successfully', 201
+    # Return a response indicating that the policy was successfully inserted
+    collection.insert_one(policy_data)
+    return 'policy inserted successfully', 201
 
 
 # Call this function to add a new policy to a policy file (policies_dict and actions_dict have to be updated
 # with the update_policies function after this function is called to make the new policy available at runtime)
-@app.route('/add_sub_policy', methods=['POST'])
-def add_sub_policy():
+@app.route('/add_policy', methods=['POST'])
+def add_policy():
     # Data provided by the web interface
     data = request.get_json()
     # priority is a string with the following format: 'mandatory' or 'double_check' or 'optional'
     priority = data['priority']
     # actions is a list with the following format: [{'device': 'window', 'to_do': 'close_window'}]
     actions = data['actions']
-    # sub_policy_name is a string with the following format: 'eval_policy_owner_home'
-    sub_policy_name = data['sub_policy_name']
-    # sub policy code is a string with the following format:
+    # policy_name is a string with the following format: 'eval_policy_owner_home'
+    policy_name = data['policy_name']
+    # policy_code is a string with the following format:
     # ' return requesting_device["at_home"] and not eval_policy_gas_detected(requesting_device, collection)'
-    sub_policy_code = data['sub_policy_code']
+    policy_code = data['policy_code']
     # imports is a list with the following format:
     # ['from policies.carbon_monoxid_detector import eval_policy_gas_detected']
     imports = data['imports']
     # device_type is a string with the following format: 'smartphone'
     device_type = data['device_type']
 
-    # Check if sub_policy_name is an empty string
-    if not sub_policy_name:
+    # Check if policy_name is an empty string
+    if not policy_name:
         # Extract the last part of the imports list
         last_import = imports[-1]
         # Split the string by space and take the last element
-        sub_policy_name = last_import.split()[-1]
+        policy_name = last_import.split()[-1]
 
     result = update_policy_file(device_type=device_type,
                                 priority=priority,
                                 actions=actions,
-                                sub_policy_name=sub_policy_name,
-                                sub_policy_code=sub_policy_code,
+                                policy_name=policy_name,
+                                policy_code=policy_code,
                                 imports=imports)
     if result:
         return "Policy added but not updated yet"
     else:
-        return "Sub-policy already exists"
+        return "policy already exists"
 
 
-@app.route('/add_sub_policy_from_db/community/<string:device_type>/<string:sub_policy_name>', methods=['POST'])
-def add_sub_policy_from_db(device_type, sub_policy_name):
+@app.route('/add_policy_from_db/community/<string:device_type>/<string:policy_name>', methods=['POST'])
+def add_policy_from_db(device_type, policy_name):
     collection = policy_database[device_type]
-    policy = collection.find_one({'sub_policy_name': sub_policy_name})
+    policy = collection.find_one({'policy_name': policy_name})
     if not policy:
-        return "Sub-policy not found"
+        return "policy not found"
 
     priority = policy['priority']
     actions = policy['actions']
-    sub_policy_name = policy['sub_policy_name']
-    sub_policy_code = policy['sub_policy_code']
+    policy_name = policy['policy_name']
+    policy_code = policy['policy_code']
     imports = policy['imports']
 
     result = update_policy_file(device_type=device_type,
                                 priority=priority,
                                 actions=actions,
-                                sub_policy_name=sub_policy_name,
-                                sub_policy_code=sub_policy_code,
+                                policy_name=policy_name,
+                                policy_code=policy_code,
                                 imports=imports)
 
     if result:
         return "Policy added but not updated yet"
     else:
-        return "Sub-policy already exists"
+        return "policy already exists"
 
 
 # Call this function to get the pending new policies of a device type
-@app.route('/pending_new_sub_policies/<string:device_type>', methods=['GET'])
-def pending_new_sub_policies(device_type):
+@app.route('/pending_new_policies/<string:device_type>', methods=['GET'])
+def pending_new_policies(device_type):
     return new_policies.get(device_type, "No new policies for this device type")
 
 
@@ -231,42 +231,42 @@ def get_possible_actions(device_type):
     return jsonify(list(set(possible_actions)))
 
 
-# Call this function to delete a sub-policy from a policy file
-@app.route('/delete_sub_policy/local/<string:device_type>/<string:sub_policy_name>', methods=['DELETE'])
-def delete_sub_policy(device_type, sub_policy_name):
+# Call this function to delete a policy from a policy file
+@app.route('/delete_policy/local/<string:device_type>/<string:policy_name>', methods=['DELETE'])
+def delete_policy(device_type, policy_name):
     module = importlib.import_module(f'policies.{device_type}')
-    if not hasattr(module, 'sub_policies_dict'):
+    if not hasattr(module, 'policies_dict'):
         return "Policy file not found"
 
-    sub_policies_dict = getattr(module, 'sub_policies_dict')
-    if sub_policy_name not in [sub_policy.__name__ for priority in sub_policies_dict for sub_policy in
-                               sub_policies_dict[priority]]:
-        return "Sub-policy not found"
+    policies_dict = getattr(module, 'policies_dict')
+    if policy_name not in [policy.__name__ for priority in policies_dict for policy in
+                               policies_dict[priority]]:
+        return "policy not found"
     actions_dict = getattr(module, 'actions_dict')
     filename = f'policies/{device_type}.py'
     with open(filename, 'r') as f:
         lines = f.readlines()
 
-    # Remove sub-policy from sub_policies_dict
-    for priority in sub_policies_dict:
-        if sub_policy_name in [sub_policy.__name__ for sub_policy in sub_policies_dict[priority]]:
-            sub_policies_dict[priority] = [sub_policy for sub_policy in sub_policies_dict[priority] if
-                                           sub_policy.__name__ != sub_policy_name]
+    # Remove policy from policies_dict
+    for priority in policies_dict:
+        if policy_name in [policy.__name__ for policy in policies_dict[priority]]:
+            policies_dict[priority] = [policy for policy in policies_dict[priority] if
+                                           policy.__name__ != policy_name]
             break
 
     # Remove actions from actions_dict
-    if sub_policy_name in actions_dict:
-        del actions_dict[sub_policy_name]
+    if policy_name in actions_dict:
+        del actions_dict[policy_name]
 
-    # Update sub_policies_dict in file
-    sub_policies_start_index = next(i for i, line in enumerate(lines) if line.startswith('sub_policies_dict'))
-    sub_policies_end_index = next(
-        i for i, line in enumerate(lines[sub_policies_start_index:], sub_policies_start_index) if
+    # Update policies_dict in file
+    policies_start_index = next(i for i, line in enumerate(lines) if line.startswith('policies_dict'))
+    policies_end_index = next(
+        i for i, line in enumerate(lines[policies_start_index:], policies_start_index) if
         line.startswith('}'))
-    del lines[sub_policies_start_index:sub_policies_end_index + 1]
-    new_sub_policies_lines = format_sub_policies_dict(sub_policies_dict).split('\n')
-    for i, line in enumerate(new_sub_policies_lines):
-        lines.insert(sub_policies_start_index + i, line + '\n')
+    del lines[policies_start_index:policies_end_index + 1]
+    new_policies_lines = format_policies_dict(policies_dict).split('\n')
+    for i, line in enumerate(new_policies_lines):
+        lines.insert(policies_start_index + i, line + '\n')
 
     # Update actions_dict in file
     actions_start_index = next(i for i, line in enumerate(lines) if line.startswith('actions_dict'))
@@ -286,8 +286,8 @@ def delete_sub_policy(device_type, sub_policy_name):
         if import_index is not None:
             del lines[import_index]
 
-    # Remove sub-policy function from file
-    function_start_pattern = re.compile(f'^def {sub_policy_name}\(')
+    # Remove policy function from file
+    function_start_pattern = re.compile(f'^def {policy_name}\(')
     function_start_index = next((i for i, line in enumerate(lines) if function_start_pattern.match(line)), None)
     if function_start_index is not None:
         function_end_index = next(
@@ -303,86 +303,86 @@ def delete_sub_policy(device_type, sub_policy_name):
     return "Policy deleted"
 
 
-# Call this function to delete a sub-policy from the database
-@app.route('/delete_sub_policy/community/<string:device_type>/<string:sub_policy_name>', methods=['DELETE'])
-def delete_sub_policy_from_db(device_type, sub_policy_name):
+# Call this function to delete a policy from the database
+@app.route('/delete_policy/community/<string:device_type>/<string:policy_name>', methods=['DELETE'])
+def delete_policy_from_db(device_type, policy_name):
     collection = policy_database[device_type]
-    result = collection.delete_one({'sub_policy_name': sub_policy_name})
+    result = collection.delete_one({'policy_name': policy_name})
     if result.deleted_count == 1:
-        return "Sub-policy deleted"
+        return "policy deleted"
     else:
-        return "Sub-policy not found"
+        return "policy not found"
 
 
-# Call this function to return a specific sub-policy entirely
-@app.route('/change_sub_policy/local/<string:device_type>/<string:sub_policy_name>', methods=['GET'])
-def change_sub_policy(device_type, sub_policy_name):
-    sub_policy_data = get_sub_policy_data(device_type, sub_policy_name)
-    if sub_policy_data is None:
-        return 'Sub-policy not found', 404
-    return jsonify(sub_policy_data)
+# Call this function to return a specific policy entirely
+@app.route('/change_policy/local/<string:device_type>/<string:policy_name>', methods=['GET'])
+def change_policy(device_type, policy_name):
+    policy_data = get_policy_data(device_type, policy_name)
+    if policy_data is None:
+        return 'policy not found', 404
+    return jsonify(policy_data)
 
 
-# Call this function to return a specific sub-policy entry from the database entirely
-@app.route('/change_sub_policy/community/<string:device_type>/<string:sub_policy_name>', methods=['GET'])
-def change_sub_policy_community(device_type, sub_policy_name):
+# Call this function to return a specific policy entry from the database entirely
+@app.route('/change_policy/community/<string:device_type>/<string:policy_name>', methods=['GET'])
+def change_policy_community(device_type, policy_name):
     collection = policy_database[device_type]
 
-    # Query the database to find the sub-policy with the given sub-policy name
-    sub_policy = collection.find_one({'sub_policy_name': sub_policy_name})
-    if not sub_policy:
-        return jsonify({'error': 'Sub-policy not found'})
+    # Query the database to find the policy with the given policy name
+    policy = collection.find_one({'policy_name': policy_name})
+    if not policy:
+        return jsonify({'error': 'policy not found'})
 
-    # Extract the sub-policy information from the database result
-    priority = sub_policy['priority']
-    actions = sub_policy['actions']
-    sub_policy_name = sub_policy['sub_policy_name']
-    sub_policy_code = sub_policy['sub_policy_code']
-    imports = sub_policy['imports']
+    # Extract the policy information from the database result
+    priority = policy['priority']
+    actions = policy['actions']
+    policy_name = policy['policy_name']
+    policy_code = policy['policy_code']
+    imports = policy['imports']
 
     return jsonify({
         'priority': priority,
         'actions': actions,
-        'sub_policy_name': sub_policy_name,
-        'sub_policy_code': sub_policy_code,
+        'policy_name': policy_name,
+        'policy_code': policy_code,
         'imports': imports,
         'device_type': device_type
     })
 
 
-# Call this function to get the sub-policies for a device type from the database
-@app.route('/get_sub_policies/community/<string:device_type>', methods=['GET'])
-def get_sub_policies_community(device_type):
+# Call this function to get the policies for a device type from the database
+@app.route('/get_policies/community/<string:device_type>', methods=['GET'])
+def get_policies_community(device_type):
     collection = policy_database[device_type]
     policies = collection.find()
     policies = [{**doc, '_id': str(doc['_id'])} for doc in policies]
     return jsonify(policies)
 
 
-# Call this function to get the code of a sub-policy of a device type from the database
-@app.route('/sub_policy_details/community/<string:device_type>/<string:sub_policy_name>', methods=['GET'])
-def sub_policy_details_community(device_type, sub_policy_name):
+# Call this function to get the code of a policy of a device type from the database
+@app.route('/policy_details/community/<string:device_type>/<string:policy_name>', methods=['GET'])
+def policy_details_community(device_type, policy_name):
     collection = policy_database[device_type]
-    sub_policy = collection.find_one({'sub_policy_name': sub_policy_name})
-    if sub_policy:
-        sub_policy_code = sub_policy.get('sub_policy_code')
-        return sub_policy_code
+    policy = collection.find_one({'policy_name': policy_name})
+    if policy:
+        policy_code = policy.get('policy_code')
+        return policy_code
     else:
-        return "Sub-policy not found"
+        return "policy not found"
 
 
-# Call this function to get the sub_policies of a device type from the local file
-@app.route('/get_sub_policies/local/<string:device_type>', methods=['GET'])
-def get_sub_policies_local(device_type):
+# Call this function to get the policies of a device type from the local file
+@app.route('/get_policies/local/<string:device_type>', methods=['GET'])
+def get_policies_local(device_type):
     module = importlib.import_module(f'policies.{device_type}')
     specific_policies = []
     general_policies = []
-    for _, sub_policies in policies_dict[device_type].items():
-        for sub_policy in sub_policies:
-            if sub_policy.__module__ == module.__name__:
-                specific_policies.append(sub_policy.__name__)
+    for _, policies in policies_dict[device_type].items():
+        for policy in policies:
+            if policy.__module__ == module.__name__:
+                specific_policies.append(policy.__name__)
             else:
-                general_policies.append(sub_policy.__name__)
+                general_policies.append(policy.__name__)
 
     return jsonify({
         'specific_policies': specific_policies,
@@ -390,25 +390,25 @@ def get_sub_policies_local(device_type):
     })
 
 
-# Call this function to get the code of a sub-policy of a device type from the local file
-@app.route('/sub_policy_details/local/<string:device_type>/<string:sub_policy_name>', methods=['GET'])
-def sub_policy_details_local(device_type, sub_policy_name):
+# Call this function to get the code of a policy of a device type from the local file
+@app.route('/policy_details/local/<string:device_type>/<string:policy_name>', methods=['GET'])
+def policy_details_local(device_type, policy_name):
     # Construct the filename from the device_type
     filename = f"policies/{device_type}.py"
     with open(filename, 'r') as f:
         lines = f.readlines()
     try:
-        # Find the index of the line that defines the sub-policy
-        start_index = next(i for i, line in enumerate(lines) if line.startswith(f'def {sub_policy_name}'))
-        # Find the index of the first line after the sub-policy definition that is not indented
+        # Find the index of the line that defines the policy
+        start_index = next(i for i, line in enumerate(lines) if line.startswith(f'def {policy_name}'))
+        # Find the index of the first line after the policy definition that is not indented
         end_index = next(
             i for i, line in enumerate(lines[start_index + 1:], start_index + 1) if not line.startswith(' '))
-        # Extract the lines of code that define the sub-policy
-        sub_policy_code = ''.join(lines[start_index:end_index])
-        return sub_policy_code
+        # Extract the lines of code that define the policy
+        policy_code = ''.join(lines[start_index:end_index])
+        return policy_code
     except StopIteration:
-        # Handle the case where the sub_policy_name does not exist
-        return f"Sub-policy {sub_policy_name} does not exist"
+        # Handle the case where the policy_name does not exist
+        return f"policy {policy_name} does not exist"
 
 
 # Call this function to update the policies_dict and actions_dict after a policy has been added
@@ -422,7 +422,7 @@ def update_policies(device_type):
     else:
         module = importlib.import_module(module_name)
     # Update the policies_dict and actions_dict
-    device_type_policies = getattr(module, 'sub_policies_dict')
+    device_type_policies = getattr(module, 'policies_dict')
     device_type_actions = getattr(module, 'actions_dict')
     policies_dict[device_type] = device_type_policies
     actions_dict[device_type] = device_type_actions
@@ -439,43 +439,43 @@ def update_policies(device_type):
     return "Policies updated"
 
 
-# Used in the functions share_sub_policy and change_sub_policy
-def get_sub_policy_data(device_type, sub_policy_name):
+# Used in the functions share_policy and change_policy
+def get_policy_data(device_type, policy_name):
     module = importlib.import_module(f'policies.{device_type}')
-    if not hasattr(module, 'sub_policies_dict'):
+    if not hasattr(module, 'policies_dict'):
         return None
 
-    sub_policies_dict = getattr(module, 'sub_policies_dict')
-    if sub_policy_name not in [sub_policy.__name__ for priority in sub_policies_dict for sub_policy in
-                               sub_policies_dict[priority]]:
+    policies_dict = getattr(module, 'policies_dict')
+    if policy_name not in [policy.__name__ for priority in policies_dict for policy in
+                               policies_dict[priority]]:
         return None
     actions_dict = getattr(module, 'actions_dict')
 
     # Find priority and actions
     priority = None
     actions = None
-    for p in sub_policies_dict:
-        if sub_policy_name in [sub_policy.__name__ for sub_policy in sub_policies_dict[p]]:
+    for p in policies_dict:
+        if policy_name in [policy.__name__ for policy in policies_dict[p]]:
             priority = p
             break
-    if sub_policy_name in actions_dict:
-        actions = actions_dict[sub_policy_name]
+    if policy_name in actions_dict:
+        actions = actions_dict[policy_name]
 
-    # Find sub-policy code and imports
+    # Find policy code and imports
     filename = f'policies/{device_type}.py'
     with open(filename, 'r') as f:
         lines = f.readlines()
 
-    function_start_pattern = re.compile(f'^def {sub_policy_name}\(')
+    function_start_pattern = re.compile(f'^def {policy_name}\(')
     function_start_index = next((i for i, line in enumerate(lines) if function_start_pattern.match(line)), None)
     if function_start_index is None:
-        return jsonify({'error': 'Sub-policy not found'})
+        return jsonify({'error': 'policy not found'})
 
     function_end_index = next(
         i for i, line in enumerate(lines[function_start_index + 1:], function_start_index + 1) if
         not line.startswith(' '))
     function_code_lines = lines[function_start_index + 1:function_end_index]
-    sub_policy_code = ''.join(line for line in function_code_lines)
+    policy_code = ''.join(line for line in function_code_lines)
 
     imports = []
     imported_function_match = re.search(r'from .+ import (\w+)', ''.join(lines))
@@ -489,29 +489,29 @@ def get_sub_policy_data(device_type, sub_policy_name):
     return {
         'priority': priority,
         'actions': actions,
-        'sub_policy_name': sub_policy_name,
-        'sub_policy_code': sub_policy_code,
+        'policy_name': policy_name,
+        'policy_code': policy_code,
         'imports': imports,
         'device_type': device_type
     }
 
 
-# Define a function to format a list of sub-policies as a string
-def format_sub_policies(sub_policies):
-    sub_policy_names = []
-    for sub_policy in sub_policies:
-        if callable(sub_policy):
-            sub_policy_names.append(sub_policy.__name__)
+# Define a function to format a list of policies as a string
+def format_policies(policies):
+    policy_names = []
+    for policy in policies:
+        if callable(policy):
+            policy_names.append(policy.__name__)
         else:
-            sub_policy_names.append(sub_policy)
-    return '[' + ', '.join(sub_policy_names) + ']'
+            policy_names.append(policy)
+    return '[' + ', '.join(policy_names) + ']'
 
 
-# Define a function to format a dictionary of sub-policies as a string
-def format_sub_policies_dict(sub_policies_dict):
-    lines = ['sub_policies_dict = {']
-    for key, value in sub_policies_dict.items():
-        lines.append(f"    '{key}': {format_sub_policies(value)},")
+# Define a function to format a dictionary of policies as a string
+def format_policies_dict(policies_dict):
+    lines = ['policies_dict = {']
+    for key, value in policies_dict.items():
+        lines.append(f"    '{key}': {format_policies(value)},")
     lines.append('}')
     return '\n'.join(lines)
 
@@ -535,30 +535,30 @@ def format_actions_dict(actions_dict):
     return '\n'.join(lines)
 
 
-# Used in the functions add_sub_policy and add_sub_policy_from_db
-def update_policy_file(device_type, priority, actions, sub_policy_name, sub_policy_code, imports):
-    # Retrieve the sub_policies_dict and actions_dict from the module
+# Used in the functions add_policy and add_policy_from_db
+def update_policy_file(device_type, priority, actions, policy_name, policy_code, imports):
+    # Retrieve the policies_dict and actions_dict from the module
     module = importlib.import_module(f'policies.{device_type}')
-    # Check if the module has the sub_policies_dict and actions_dict attributes or if it is a generic policy file
-    if hasattr(module, 'sub_policies_dict'):
+    # Check if the module has the policies_dict and actions_dict attributes or if it is a generic policy file
+    if hasattr(module, 'policies_dict'):
         # Retrieve the file content
-        sub_policies_dict = getattr(module, 'sub_policies_dict')
+        policies_dict = getattr(module, 'policies_dict')
         actions_dict = getattr(module, 'actions_dict')
         filename = f'policies/{device_type}.py'
         with open(filename, 'r') as f:
             lines = f.readlines()
 
-        # Check if the sub_policy_name already exists in the sub_policies_dict
-        for key in sub_policies_dict:
-            for sub_policy in sub_policies_dict[key]:
-                # Check if sub_policy is a string or a function
-                if isinstance(sub_policy, str):
-                    # If it's a string, compare it directly to sub_policy_name
-                    if sub_policy_name == sub_policy:
+        # Check if the policy_name already exists in the policies_dict
+        for key in policies_dict:
+            for policy in policies_dict[key]:
+                # Check if policy is a string or a function
+                if isinstance(policy, str):
+                    # If it's a string, compare it directly to policy_name
+                    if policy_name == policy:
                         return False
                 else:
-                    # If it's not a string (assumed to be a function), compare its __name__ attribute to sub_policy_name
-                    if sub_policy_name == sub_policy.__name__:
+                    # If it's not a string (assumed to be a function), compare its __name__ attribute to policy_name
+                    if policy_name == policy.__name__:
                         return False
 
         # Insert the imports into the list of lines
@@ -566,28 +566,28 @@ def update_policy_file(device_type, priority, actions, sub_policy_name, sub_poli
             lines.insert(0, imp + '\n\n')
 
         # Create a copy of the dictionaries
-        sub_policies_dict_copy = copy.deepcopy(sub_policies_dict)
+        policies_dict_copy = copy.deepcopy(policies_dict)
         actions_dict_copy = copy.deepcopy(actions_dict)
 
         # Update the copies of the dictionaries in memory
-        sub_policies_dict_copy[priority].append(sub_policy_name)
-        actions_dict_copy[sub_policy_name] = actions
+        policies_dict_copy[priority].append(policy_name)
+        actions_dict_copy[policy_name] = actions
 
-        # Find the index of the line that defines the sub_policies_dict
-        sub_policies_start_index = next(i for i, line in enumerate(lines) if line.startswith('sub_policies_dict'))
+        # Find the index of the line that defines the policies_dict
+        policies_start_index = next(i for i, line in enumerate(lines) if line.startswith('policies_dict'))
 
-        # Find the index of the line that ends the sub_policies_dict definition
-        sub_policies_end_index = next(
-            i for i, line in enumerate(lines[sub_policies_start_index:], sub_policies_start_index) if
+        # Find the index of the line that ends the policies_dict definition
+        policies_end_index = next(
+            i for i, line in enumerate(lines[policies_start_index:], policies_start_index) if
             line.startswith('}'))
 
-        # Remove the old sub_policies_dict definition from the list of lines
-        del lines[sub_policies_start_index:sub_policies_end_index + 1]
+        # Remove the old policies_dict definition from the list of lines
+        del lines[policies_start_index:policies_end_index + 1]
 
-        # Insert the new sub_policies_dict definition into the list of lines
-        new_sub_policies_lines = format_sub_policies_dict(sub_policies_dict_copy).split('\n')
-        for i, line in enumerate(new_sub_policies_lines):
-            lines.insert(sub_policies_start_index + i, line + '\n')
+        # Insert the new policies_dict definition into the list of lines
+        new_policies_lines = format_policies_dict(policies_dict_copy).split('\n')
+        for i, line in enumerate(new_policies_lines):
+            lines.insert(policies_start_index + i, line + '\n')
 
         # Find the index of the line that defines the actions_dict
         actions_start_index = next(i for i, line in enumerate(lines) if line.startswith('actions_dict'))
@@ -608,22 +608,22 @@ def update_policy_file(device_type, priority, actions, sub_policy_name, sub_poli
             lines.insert(actions_start_index + i, line + '\n')
 
         # Insert a blank line to separate the imports from the function definition
-        lines.insert(sub_policies_start_index, '\n')
+        lines.insert(policies_start_index, '\n')
 
-        # Check if sub_policy_code is not empty
-        if sub_policy_code:
+        # Check if policy_code is not empty
+        if policy_code:
             # Insert the function definition into the list of lines
-            lines.insert(sub_policies_start_index + 1, f'def {sub_policy_name}(requesting_device, collection):\n')
+            lines.insert(policies_start_index + 1, f'def {policy_name}(requesting_device, collection):\n')
 
-            # Insert the sub_policy_code into the list of lines, indented by 4 spaces
-            lines.insert(sub_policies_start_index + 2, '    ' + sub_policy_code + '\n\n\n')
+            # Insert the policy_code into the list of lines, indented by 4 spaces
+            lines.insert(policies_start_index + 2, '    ' + policy_code + '\n\n\n')
 
         # Write the modified content back to the file
         with open(filename, 'w') as f:
             f.writelines(lines)
 
         # Update the new_policies dictionary when adding a new policy
-        new_policies[device_type] = f'def {sub_policy_name}(requesting_device, collection):\n    {sub_policy_code}\n'
+        new_policies[device_type] = f'def {policy_name}(requesting_device, collection):\n    {policy_code}\n'
 
         return True
 
@@ -644,17 +644,17 @@ def update_policy_file(device_type, priority, actions, sub_policy_name, sub_poli
         lines.insert(start_index, '\n')
 
         # Insert the function definition into the list of lines
-        lines.insert(start_index + 1, f'def {sub_policy_name}(requesting_device, collection):\n')
+        lines.insert(start_index + 1, f'def {policy_name}(requesting_device, collection):\n')
 
-        # Insert the sub_policy_code into the list of lines, indented by 4 spaces
-        lines.insert(start_index + 2, '    ' + sub_policy_code + '\n\n\n')
+        # Insert the policy_code into the list of lines, indented by 4 spaces
+        lines.insert(start_index + 2, '    ' + policy_code + '\n\n\n')
 
         # Write the modified content back to the file
         with open(filename, 'w') as f:
             f.writelines(lines)
 
         # Update the new_policies dictionary when adding a new policy
-        new_policies[device_type] = f'def {sub_policy_name}(requesting_device, collection):\n    {sub_policy_code}\n'
+        new_policies[device_type] = f'def {policy_name}(requesting_device, collection):\n    {policy_code}\n'
 
         return True
 
@@ -682,56 +682,56 @@ def add_policy_actions(policy_name, possible_actions, policy_to_dos):
 
 
 # Used in the function policy_result
-def evaluate_policies(sub_policies, possible_actions, requesting_device):
-    # Lists to store the failed sub_policies and the actions that need to be executed
+def evaluate_policies(policies, possible_actions, requesting_device):
+    # Lists to store the failed policies and the actions that need to be executed
     failed_double_check = []
     policy_to_dos = []
     optional_failed = False
 
-    # Execute high priority sub_policies
-    for policy in sub_policies['mandatory']:
+    # Execute high priority policies
+    for policy in policies['mandatory']:
         result = policy(requesting_device, collection_devices)
         if not result:
-            # If a high priority sub_policy fails, the other high priority sub_policies are not executed
+            # If a high priority policy fails, the other high priority policies are not executed
             policy_to_dos = []
             return [False, "mandatory", failed_double_check, policy_to_dos]
         else:
-            # If a high priority sub_policy succeeds, the actions of that sub_policy are added to the policy_to_dos
+            # If a high priority policy succeeds, the actions of that policy are added to the policy_to_dos
             policy_name = policy.__name__
             add_policy_actions(policy_name, possible_actions, policy_to_dos)
 
-    # Execute double check sub_policies
-    for policy in sub_policies['double_check']:
+    # Execute double check policies
+    for policy in policies['double_check']:
         result = policy(requesting_device, collection_devices)
         if not result:
-            # If a double check sub_policy fails, the other low priority sub_policies are still executed
-            # add the failed sub_policy to the list of failed sub_policies to double-check later
+            # If a double check policy fails, the other low priority policies are still executed
+            # add the failed policy to the list of failed policies to double-check later
             failed_double_check.append(policy.__name__)
         else:
-            # If a double check sub_policy succeeds, the actions of that sub_policy are added to the policy_to_dos
+            # If a double check policy succeeds, the actions of that policy are added to the policy_to_dos
             policy_name = policy.__name__
             add_policy_actions(policy_name, possible_actions, policy_to_dos)
 
-    # Execute low priority sub_policies
-    for policy in sub_policies['optional']:
+    # Execute low priority policies
+    for policy in policies['optional']:
         result = policy(requesting_device, collection_devices)
         if not result:
             optional_failed = True
         else:
-            # If a low priority sub_policy succeeds, the actions of that sub_policy are added to the policy_to_dos
+            # If a low priority policy succeeds, the actions of that policy are added to the policy_to_dos
             policy_name = policy.__name__
             add_policy_actions(policy_name, possible_actions, policy_to_dos)
 
     if failed_double_check:
-        # If there are failed low priority sub_policies, the policy fails but the double check will be handled in
+        # If there are failed low priority policies, the policy fails but the double check will be handled in
         #  the message_handler
         return [False, "double_check", failed_double_check, policy_to_dos]
 
     elif optional_failed:
-        # If there are failed low priority sub_policies, but they are not double-check sub_policies
+        # If there are failed low priority policies, but they are not double-check policies
         return [True, "optional", failed_double_check, policy_to_dos]
     else:
-        # If all sub_policies succeed, the policy succeeds
+        # If all policies succeed, the policy succeeds
         return [True, "N/A", failed_double_check, policy_to_dos]
 
 
