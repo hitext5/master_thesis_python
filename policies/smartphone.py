@@ -17,6 +17,8 @@ policies_dict = {
     'optional': [],
 }
 
+considerations_dict = {}
+
 actions_dict = {
     'eval_policy_owner_away': [
         {'device': 'window', 'to_do': 'close_window'},

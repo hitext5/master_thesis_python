@@ -6,4 +6,6 @@ policies_dict = {
     'optional': []
 }
 
+considerations_dict = {}
+
 actions_dict = {}

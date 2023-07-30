@@ -12,6 +12,8 @@ policies_dict = {
     'optional': []
 }
 
+considerations_dict = {}
+
 actions_dict = {
     'eval_policy_rain_detected': [{'device': 'window', 'to_do': 'close_window'}],
     'eval_policy_wind_detected': [{'device': 'window', 'to_do': 'close_window'}]

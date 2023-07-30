@@ -37,6 +37,8 @@ policies_dict = {}
 # Contains the actions for each device type will be initialized in the following for loop
 actions_dict = {}
 
+considerations_dict = {}
+
 # Contains the new policies that will be added to the database
 new_policies = {}
 
@@ -47,8 +49,10 @@ for device_type in device_types:
     module = importlib.import_module(f'policies.{device_type}')
     device_type_policies = getattr(module, 'policies_dict')
     device_type_actions = getattr(module, 'actions_dict')
+    device_type_considerations = getattr(module, 'considerations_dict')
     policies_dict[device_type] = device_type_policies
     actions_dict[device_type] = device_type_actions
+    considerations_dict[device_type] = device_type_considerations
 
 current_size, peak_size = tracemalloc.get_traced_memory()
 
@@ -66,9 +70,11 @@ def policy_result(device_type):
     # Retrieve the policies and actions of the requesting device type
     policy_of_requesting_device = policies_dict.get(device_type)
     actions_of_requesting_device = actions_dict.get(device_type)
+    considerations_of_requesting_device = considerations_dict.get(device_type)
     # Check if there is a policy for this device type
     if policy_of_requesting_device:
-        result = evaluate_policies(policy_of_requesting_device, actions_of_requesting_device, data)
+        result = evaluate_policies(policy_of_requesting_device, actions_of_requesting_device,
+                                   considerations_of_requesting_device, data)
         current_size, peak_size = tracemalloc.get_traced_memory()
 
         print(f"Current size: {current_size / 1024 / 1024} MB")
@@ -682,7 +688,7 @@ def add_policy_actions(policy_name, possible_actions, policy_to_dos):
 
 
 # Used in the function policy_result
-def evaluate_policies(policies, possible_actions, requesting_device):
+def evaluate_policies(policies, possible_actions, considerations, requesting_device):
     # Lists to store the failed policies and the actions that need to be executed
     failed_double_check = []
     policy_to_dos = []
@@ -690,37 +696,46 @@ def evaluate_policies(policies, possible_actions, requesting_device):
 
     # Execute high priority policies
     for policy in policies['mandatory']:
-        result = policy(requesting_device, collection_devices)
-        if not result:
-            # If a high priority policy fails, the other high priority policies are not executed
-            policy_to_dos = []
-            return [False, "mandatory", failed_double_check, policy_to_dos]
-        else:
-            # If a high priority policy succeeds, the actions of that policy are added to the policy_to_dos
-            policy_name = policy.__name__
-            add_policy_actions(policy_name, possible_actions, policy_to_dos)
+        policy_name = policy.__name__
+        if (policy_name in considerations and requesting_device["device_id"] in considerations[policy_name]) ^ (
+                policy_name not in considerations):
+            result = policy(requesting_device, collection_devices)
+            if not result:
+                # If a high priority policy fails, the other high priority policies are not executed
+                policy_to_dos = []
+                return [False, "mandatory", failed_double_check, policy_to_dos]
+            else:
+                # If a high priority policy succeeds, the actions of that policy are added to the policy_to_dos
+                policy_name = policy.__name__
+                add_policy_actions(policy_name, possible_actions, policy_to_dos)
 
     # Execute double check policies
     for policy in policies['double_check']:
-        result = policy(requesting_device, collection_devices)
-        if not result:
-            # If a double check policy fails, the other low priority policies are still executed
-            # add the failed policy to the list of failed policies to double-check later
-            failed_double_check.append(policy.__name__)
-        else:
-            # If a double check policy succeeds, the actions of that policy are added to the policy_to_dos
-            policy_name = policy.__name__
-            add_policy_actions(policy_name, possible_actions, policy_to_dos)
+        policy_name = policy.__name__
+        if (policy_name in considerations and requesting_device["device_id"] in considerations[policy_name]) ^ (
+                policy_name not in considerations):
+            result = policy(requesting_device, collection_devices)
+            if not result:
+                # If a double check policy fails, the other low priority policies are still executed
+                # add the failed policy to the list of failed policies to double-check later
+                failed_double_check.append(policy.__name__)
+            else:
+                # If a double check policy succeeds, the actions of that policy are added to the policy_to_dos
+                policy_name = policy.__name__
+                add_policy_actions(policy_name, possible_actions, policy_to_dos)
 
     # Execute low priority policies
     for policy in policies['optional']:
-        result = policy(requesting_device, collection_devices)
-        if not result:
-            optional_failed = True
-        else:
-            # If a low priority policy succeeds, the actions of that policy are added to the policy_to_dos
-            policy_name = policy.__name__
-            add_policy_actions(policy_name, possible_actions, policy_to_dos)
+        policy_name = policy.__name__
+        if (policy_name in considerations and requesting_device["device_id"] in considerations[policy_name]) ^ (
+                policy_name not in considerations):
+            result = policy(requesting_device, collection_devices)
+            if not result:
+                optional_failed = True
+            else:
+                # If a low priority policy succeeds, the actions of that policy are added to the policy_to_dos
+                policy_name = policy.__name__
+                add_policy_actions(policy_name, possible_actions, policy_to_dos)
 
     if failed_double_check:
         # If there are failed low priority policies, the policy fails but the double check will be handled in

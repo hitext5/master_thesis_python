@@ -24,8 +24,13 @@ def eval_policy_air_quality(requesting_device, collection):
 
 policies_dict = {
     'mandatory': [],
-    'double_check': [eval_policy_ac_on, eval_policy_heating_on, eval_policy_air_quality],
-    'optional': []
+    'double_check': [],
+    'optional': [eval_policy_ac_on, eval_policy_heating_on, eval_policy_air_quality]
+}
+
+considerations_dict = {
+    'eval_policy_heating_on': ["thermostat_bathroom", "thermostat_kitchen"],
+    'eval_policy_air_quality': ["thermostat_kitchen"]
 }
 
 actions_dict = {
