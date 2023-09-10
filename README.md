@@ -1,10 +1,10 @@
+# Policy Server
 Operates for both, evaluating the policies and handling the functions of the interface.
 Policy server API provides backend for the interface of the project https://github.com/Lordomordo/userinterface and needs to run before starting the interface.
 Only the function "policy_result" is used for the message handler from project https://github.com/hitext5/master_thesis_mqtt. 
 
-
+## To Bootstrap the Project
 Install packages: pip install -r requirements.txt 
-
 
 Setup database:
 1. Create account and database on https://cloud.mongodb.com/
@@ -14,6 +14,7 @@ Setup database:
 4. Replace line 20 and 21 (rcbms_database_name and policy_database_name) with your database and collection name.
 
 
+## How it works
 If you change the port of the interface also adjust the CORS on line 63 in main.py
 
 
