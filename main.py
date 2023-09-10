@@ -195,7 +195,7 @@ def add_policy_from_db(device_type, policy_name):
     if result:
         return "Policy added but not updated yet"
     else:
-        return "policy already exists"
+        return "policy already exists", 409
 
 
 # Call this function to get the pending new policies of a device type
@@ -246,7 +246,7 @@ def delete_policy(device_type, policy_name):
 
     policies_dict = getattr(module, 'policies_dict')
     if policy_name not in [policy.__name__ for priority in policies_dict for policy in
-                               policies_dict[priority]]:
+                           policies_dict[priority]]:
         return "policy not found"
     actions_dict = getattr(module, 'actions_dict')
     filename = f'policies/{device_type}.py'
@@ -257,7 +257,7 @@ def delete_policy(device_type, policy_name):
     for priority in policies_dict:
         if policy_name in [policy.__name__ for policy in policies_dict[priority]]:
             policies_dict[priority] = [policy for policy in policies_dict[priority] if
-                                           policy.__name__ != policy_name]
+                                       policy.__name__ != policy_name]
             break
 
     # Remove actions from actions_dict
@@ -317,7 +317,7 @@ def delete_policy_from_db(device_type, policy_name):
     if result.deleted_count == 1:
         return "policy deleted"
     else:
-        return "policy not found"
+        return "policy not found", 404
 
 
 # Call this function to return a specific policy entirely
@@ -374,7 +374,7 @@ def policy_details_community(device_type, policy_name):
         policy_code = policy.get('policy_code')
         return policy_code
     else:
-        return "policy not found"
+        return "policy not found", 404
 
 
 # Call this function to get the policies of a device type from the local file
@@ -453,7 +453,7 @@ def get_policy_data(device_type, policy_name):
 
     policies_dict = getattr(module, 'policies_dict')
     if policy_name not in [policy.__name__ for priority in policies_dict for policy in
-                               policies_dict[priority]]:
+                           policies_dict[priority]]:
         return None
     actions_dict = getattr(module, 'actions_dict')
 
